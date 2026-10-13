@@ -38,3 +38,6 @@ This is additional reference material for the capstone in case you want to explo
 
 MIT License - see [LICENSE](LICENSE).
 CI workflow verification
+git add README.md
+git commit -m "docs: verify task acceptance workflow"
+git push -u origin docs/trigger-task-acceptance
