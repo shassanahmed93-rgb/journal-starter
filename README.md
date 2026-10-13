@@ -1,12 +1,12 @@
 # Learn to Cloud Phase 3 Capstone: Journal API
 
-[![CI](https://github.com/learntocloud/journal-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/learntocloud/journal-starter/actions/workflows/ci.yml)
+[![CI](https://github.com/shassanahmed93-rgb/journal-starter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shassanahmed93-rgb/journal-starter/actions/workflows/ci.yml)
 
-Welcome to [Learn to Cloud's](https://learntocloud.com) Phase 3 capstone. You will be guided to building a journal API with **FastAPI**, **PostgreSQL**, structured logging, input validation, and AI-powered entry analysis.
+Welcome to [Learn to Cloud's](https://learntocloud.com) Phase 3 capstone. You will build a journal API with **FastAPI**, **PostgreSQL**, structured logging, input validation, and AI-powered entry analysis.
 
 ## Capstone
 
-These chapters will guide you and are meant to be completed in order. Each chapter builds on the previous one, so do not skip ahead. 
+These chapters are designed to be completed in order. Each chapter builds on the previous one, so do not skip ahead.
 
 1. [Check the prerequisites](docs/01-prerequisites.md)
 2. [Set up the project](docs/02-project-setup.md)
@@ -23,21 +23,15 @@ These chapters will guide you and are meant to be completed in order. Each chapt
 
 ## Reference
 
-This is additional reference material for the capstone in case you want to explore further or need help:
+This additional reference material is available if you want to explore further or need help:
 
 - [Testing and CI](docs/reference/testing-and-ci.md)
 - [Troubleshooting](docs/reference/troubleshooting.md)
 - [Sync your fork with upstream](docs/reference/upstream-sync.md)
 - [Explore your database](docs/reference/explore-database.md)
 
-> **Learning environment only:** This application has no authentication or
-> per-user data isolation. Do not expose it publicly or store personal or
-> sensitive journal content in it.
+> **Learning environment only:** This application has no authentication or per-user data isolation. Do not expose it publicly or store personal or sensitive journal content in it.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE).
-CI workflow verification
-git add README.md
-git commit -m "docs: verify task acceptance workflow"
-git push -u origin docs/trigger-task-acceptance
+MIT License. See [LICENSE](LICENSE).
