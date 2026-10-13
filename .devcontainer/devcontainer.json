@@ -1,37 +1,28 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/python
+// README at: https://github.com/devcontainers/templates/tree/main/src/alpine
 {
-  "name": "Journal Starter",
-  "dockerComposeFile": ["./docker-compose.yml"],
-  "features": {
-		"ghcr.io/va-h/devcontainers-features/uv": {},
-		// TODO: Add one of these cloud CLI tools based on your needs:
-        // "ghcr.io/devcontainers/features/azure-cli:1": {},
-        // "ghcr.io/devcontainers/features/aws-cli:1": {},
-        // "ghcr.io/dhoeric/features/google-cloud-cli:1": {}
-	},
-  
-  "service": "devcontainer",
-  "workspaceFolder": "/workspaces/",
-  "runServices": ["postgres"],
-  "forwardPorts": [8000],
-  "portsAttributes": {
-    "8000": {
-      "label": "FastAPI"
-    }
-  },
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "ms-python.python",
-        "ms-python.debugpy"
-      ]
-    }
-  }
-  
-  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"name": "Alpine",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"image": "mcr.microsoft.com/devcontainers/base:alpine3.23",
+	"features": "features": {
+  "ghcr.io/va-h/devcontainers-features/uv": {},
+  "ghcr.io/devcontainers/features/azure-cli:1": {},
+  // "ghcr.io/devcontainers/features/aws-cli:1": {},
+  // "ghcr.io/dhoeric/features/google-cloud-cli:1": {}
+},
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 
-  // Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	// Use 'postCreateCommand' to run commands after the container is created.
+	// "postCreateCommand": "uname -a",
+
+	// Configure tool-specific properties.
+	// "customizations": {},
+
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"
 }
