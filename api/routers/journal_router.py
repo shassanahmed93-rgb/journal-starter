@@ -14,6 +14,7 @@ from api.models.entry import (
     EntryCreate,
     EntryCreatedResponse,
     EntryListResponse,
+    EntryUpdate,
 )
 from api.repositories.interface_repository import DatabaseInterface
 from api.services.entry_service import EntryService
@@ -37,7 +38,7 @@ EntryServiceDependency = Annotated[EntryService, Depends(get_entry_service)]
 
 
 def _log_analysis_failure(entry_id: str, error: Exception) -> None:
-    # Keep diagnostic locations, but exclude exception text, source lines, and local values.
+    # Log diagnostic locations without exposing exception text or local values.
     locations = " -> ".join(
         f"{frame.filename}:{frame.lineno} in {frame.name}"
         for frame in traceback.extract_tb(error.__traceback__)
@@ -54,102 +55,81 @@ def _log_analysis_failure(entry_id: str, error: Exception) -> None:
 
 @router.post("/entries", status_code=201)
 async def create_entry(
-    entry_data: EntryCreate, entry_service: EntryServiceDependency
+    entry_data: EntryCreate,
+    entry_service: EntryServiceDependency,
 ) -> EntryCreatedResponse:
     """Create a new journal entry."""
     created_entry = await entry_service.create_entry(entry_data)
-    return EntryCreatedResponse(detail="Entry created successfully", entry=created_entry)
+    return EntryCreatedResponse(
+        detail="Entry created successfully",
+        entry=created_entry,
+    )
 
 
 @router.get("/entries")
-async def get_all_entries(entry_service: EntryServiceDependency) -> EntryListResponse:
+async def get_all_entries(
+    entry_service: EntryServiceDependency,
+) -> EntryListResponse:
     """Get all journal entries."""
-    result = await entry_service.get_all_entries()
-    return EntryListResponse(entries=result, count=len(result))
+    entries = await entry_service.get_all_entries()
+    return EntryListResponse(entries=entries, count=len(entries))
 
 
 @router.get("/entries/{entry_id}")
-async def get_entry(entry_id: str, entry_service: EntryServiceDependency) -> Entry:
+async def get_entry(
+    entry_id: str,
+    entry_service: EntryServiceDependency,
+) -> Entry:
     """Get a journal entry by ID."""
-    # TODO: Implement this endpoint to return a single journal entry by ID.
-    #
-    # Steps to implement:
-    # 1. Use await entry_service.get_entry(entry_id) to fetch the entry.
-    # 2. If entry is None, raise HTTPException with status_code=404.
-    # 3. Return the Entry model directly (not wrapped in a dict).
-    #
-    # Example response (status 200):
-    # {
-    #     "id": "uuid-string",
-    #     "work": "...",
-    #     "struggle": "...",
-    #     "intention": "...",
-    #     "created_at": "...",
-    #     "updated_at": "..."
-    # }
-    #
-    # Hint: Check the update_entry endpoint for similar patterns.
-    # See docs/04-get-entry.md for the exercise walkthrough.
-    raise HTTPException(status_code=501, detail="Not implemented - complete this endpoint!")
+    entry = await entry_service.get_entry(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return entry
 
 
 @router.patch("/entries/{entry_id}")
 async def update_entry(
-    entry_id: str, entry_update: dict[str, str], entry_service: EntryServiceDependency
+    entry_id: str,
+    entry_update: EntryUpdate,
+    entry_service: EntryServiceDependency,
 ) -> Entry:
     """Update a journal entry."""
-    # TODO (Task 2): Replace ``entry_update: dict[str, str]`` with ``entry_update: EntryUpdate``
-    # (import the supplied model from ``api.models.entry``). Complete the shared
-    # EntryText string rules there; omission and null handling are already supplied.
-    # Then pass ``entry_update.model_dump(exclude_unset=True)`` to the service,
-    # which expects a dict. Passing the model itself fails; dumping every field
-    # would overwrite omitted fields with their defaults.
-    # An empty object is allowed and leaves the text fields unchanged.
-    # See ``TestUpdateEntry`` in tests/test_api.py and docs/06-input-validation.md.
-    result = await entry_service.update_entry(entry_id, entry_update)
+    result = await entry_service.update_entry(
+        entry_id,
+        entry_update.model_dump(exclude_unset=True),
+    )
     if result is None:
         raise HTTPException(status_code=404, detail="Entry not found")
-
     return result
 
 
 @router.delete("/entries/{entry_id}")
-async def delete_entry(entry_id: str, entry_service: EntryServiceDependency) -> DetailResponse:
+async def delete_entry(
+    entry_id: str,
+    entry_service: EntryServiceDependency,
+) -> DetailResponse:
     """Delete a journal entry by ID."""
-    # TODO: Implement this endpoint to delete a specific journal entry.
-    #
-    # Steps to implement:
-    # 1. Use await entry_service.delete_entry(entry_id) exactly once.
-    # 2. If it returns False, raise HTTPException with status_code=404.
-    # 3. Return DetailResponse(detail="Entry deleted successfully") (status 200).
-    #
-    # The repository atomically deletes the row and reports whether it existed.
-    # Do not fetch the entry first: another request could delete it between calls.
-    #
-    # Example response (status 200):
-    # {"detail": "Entry deleted successfully"}
-    #
-    # Hint: Look at how the update_entry endpoint checks for existence.
-    # See docs/05-delete-entry.md for the exercise walkthrough.
-    raise HTTPException(status_code=501, detail="Not implemented - complete this endpoint!")
+    deleted = await entry_service.delete_entry(entry_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return DetailResponse(detail="Entry deleted successfully")
 
 
 @router.delete("/entries")
-async def delete_all_entries(entry_service: EntryServiceDependency) -> DetailResponse:
-    """Delete all journal entries"""
+async def delete_all_entries(
+    entry_service: EntryServiceDependency,
+) -> DetailResponse:
+    """Delete all journal entries."""
     await entry_service.delete_all_entries()
     return DetailResponse(detail="All entries deleted")
 
 
 @router.post("/entries/{entry_id}/analyze", response_model=AnalysisResponse)
-async def analyze_entry(entry_id: str, entry_service: EntryServiceDependency) -> AnalysisResponse:
-    """
-    Analyze a journal entry using AI.
-
-    Returns sentiment, summary, key topics, entry_id, and created_at timestamp.
-    The LLM call itself lives in api/services/llm_service.py - implementing
-    analyze_journal_entry there is part of the capstone.
-    """
+async def analyze_entry(
+    entry_id: str,
+    entry_service: EntryServiceDependency,
+) -> AnalysisResponse:
+    """Analyze a journal entry using AI."""
     entry = await entry_service.get_entry(entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
@@ -167,19 +147,30 @@ async def analyze_entry(entry_id: str, entry_service: EntryServiceDependency) ->
     except (ValidationError, JSONDecodeError, InvalidAnalysisResponseError) as e:
         _log_analysis_failure(entry_id, e)
         raise HTTPException(
-            status_code=502, detail="Analysis provider returned an invalid response"
+            status_code=502,
+            detail="Analysis provider returned an invalid response",
         ) from e
     except APITimeoutError as e:
         _log_analysis_failure(entry_id, e)
-        raise HTTPException(status_code=504, detail="Analysis provider timed out") from e
+        raise HTTPException(
+            status_code=504,
+            detail="Analysis provider timed out",
+        ) from e
     except RateLimitError as e:
         _log_analysis_failure(entry_id, e)
         raise HTTPException(
-            status_code=503, detail="Analysis provider is temporarily unavailable"
+            status_code=503,
+            detail="Analysis provider is temporarily unavailable",
         ) from e
     except OpenAIError as e:
         _log_analysis_failure(entry_id, e)
-        raise HTTPException(status_code=502, detail="Analysis provider request failed") from e
+        raise HTTPException(
+            status_code=502,
+            detail="Analysis provider request failed",
+        ) from e
     except Exception as e:
         _log_analysis_failure(entry_id, e)
-        raise HTTPException(status_code=500, detail="Analysis failed") from e
+        raise HTTPException(
+            status_code=500,
+            detail="Analysis failed",
+        ) from e
