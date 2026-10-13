@@ -37,3 +37,4 @@ This is additional reference material for the capstone in case you want to explo
 ## License
 
 MIT License - see [LICENSE](LICENSE).
+CI workflow verification
