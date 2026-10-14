@@ -1,20 +1,21 @@
-aws_region = "REPLACE_WITH_YOUR_AWS_REGION"
+aws_region = "us-east-1"
 
-# Select an EKS Kubernetes version supported in that region.
+# Set this to a currently supported EKS version in your region.
 cluster_version = "REPLACE_WITH_SUPPORTED_EKS_VERSION"
 
-# Set stable client egress CIDRs. Avoid 0.0.0.0/0.
-cluster_endpoint_public_access_cidrs = ["REPLACE_WITH_STATIC_EGRESS_CIDR/32"]
+# Use your current public egress IP as /32. Never use 0.0.0.0/0.
+cluster_endpoint_public_access_cidrs = ["REPLACE_WITH_CURRENT_EGRESS_IP/32"]
 
-postgres_engine_version = "REPLACE_WITH_SUPPORTED_POSTGRES_VERSION"
+postgres_engine_version = "REPLACE_WITH_SUPPORTED_POSTGRES_16_VERSION"
+postgres_multi_az = false
 
-# This must be a hostname in a public Route 53 hosted zone you own.
-api_domain     = "REPLACE_WITH_DOMAIN_YOU_OWN"
-route53_zone_id = "REPLACE_WITH_EXISTING_PUBLIC_HOSTED_ZONE_ID"
+# First apply: keep CloudFront disabled until the Kubernetes ALB exists.
+create_cloudfront = false
+cloudfront_origin_domain_name = ""
 
-# Choose a model/deployment name available from your selected provider.
-openai_model = "REPLACE_WITH_PROVIDER_MODEL"
+# Groq Responses API-compatible endpoint and model.
+openai_base_url = "https://api.groq.com/openai/v1"
+openai_model = "openai/gpt-oss-20b"
+
 alarm_notification_email = "REPLACE_WITH_ALERT_EMAIL"
-
-# Change this when deploying a fork.
 github_repository = "shassanahmed93-rgb/journal-starter"

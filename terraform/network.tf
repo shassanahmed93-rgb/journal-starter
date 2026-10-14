@@ -107,6 +107,27 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private.id
 }
 
+resource "aws_security_group" "alb_cloudfront" {
+  name        = "${local.name}-alb-cloudfront"
+  description = "Allow HTTP to the public ALB only from CloudFront origin-facing addresses."
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "CloudFront origin-facing managed prefix list"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = ["pl-3b927c52"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
 resource "aws_security_group" "database" {
   name        = "${local.name}-postgres"
   description = "PostgreSQL is reachable only from the EKS cluster security group."

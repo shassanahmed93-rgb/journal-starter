@@ -116,14 +116,26 @@ variable "github_repository" {
   default     = "shassanahmed93-rgb/journal-starter"
 }
 
-variable "api_domain" {
-  description = "Public DNS name for the API. It must be in the supplied Route 53 hosted zone."
-  type        = string
+
+
+variable "create_cloudfront" {
+  description = "Create the public HTTPS CloudFront distribution after the Kubernetes ALB exists."
+  type        = bool
+  default     = false
 }
 
-variable "route53_zone_id" {
-  description = "Existing public Route 53 hosted zone ID for api_domain. The zone itself is not created."
+variable "cloudfront_origin_domain_name" {
+  description = "DNS hostname of the Kubernetes-created ALB. Required only when create_cloudfront is true."
   type        = string
+  default     = ""
+
+  validation {
+    condition = (
+      !var.create_cloudfront ||
+      can(regex("^[a-z0-9.-]+\\.elb\\.amazonaws\\.com$", var.cloudfront_origin_domain_name))
+    )
+    error_message = "When CloudFront is enabled, set cloudfront_origin_domain_name to the ALB DNS hostname."
+  }
 }
 
 variable "openai_base_url" {

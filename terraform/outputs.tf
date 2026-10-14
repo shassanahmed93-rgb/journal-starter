@@ -63,14 +63,21 @@ output "otel_collector_role_arn" {
   value       = aws_iam_role.otel_collector.arn
 }
 
-output "acm_certificate_arn" {
-  description = "Validated ACM certificate ARN for the API ingress."
-  value       = aws_acm_certificate_validation.api.certificate_arn
+
+
+output "alb_cloudfront_security_group_id" {
+  description = "Security group to attach to the ALB; inbound HTTP is restricted to CloudFront."
+  value       = aws_security_group.alb_cloudfront.id
 }
 
-output "api_domain" {
-  description = "Configured public DNS hostname."
-  value       = var.api_domain
+output "cloudfront_domain_name" {
+  description = "CloudFront HTTPS hostname; null until the distribution is enabled."
+  value       = try(aws_cloudfront_distribution.api[0].domain_name, null)
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID; null until the distribution is enabled."
+  value       = try(aws_cloudfront_distribution.api[0].id, null)
 }
 
 output "openai_base_url" {

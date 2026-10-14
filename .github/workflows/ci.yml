@@ -152,8 +152,7 @@ jobs:
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
       DATABASE_ADMIN_SECRET_ARN: ${{ vars.DATABASE_ADMIN_SECRET_ARN }}
       DATABASE_APP_SECRET_ARN: ${{ vars.DATABASE_APP_SECRET_ARN }}
-      API_DOMAIN: ${{ vars.API_DOMAIN }}
-      ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+      ALB_CLOUDFRONT_SECURITY_GROUP_ID: ${{ vars.ALB_CLOUDFRONT_SECURITY_GROUP_ID }}
       OTEL_COLLECTOR_ROLE_ARN: ${{ vars.OTEL_COLLECTOR_ROLE_ARN }}
       OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
@@ -162,11 +161,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Require a real HTTPS production API URL
+      - name: Validate production HTTPS URL when configured
+        if: ${{ vars.PRODUCTION_API_URL != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          python3 - <<'PYURL'
           import os
           from urllib.parse import urlsplit
 
@@ -186,11 +186,8 @@ jobs:
           except ValueError:
               valid = False
           if not valid:
-              raise SystemExit(
-                  "::error::Set production environment variable PRODUCTION_API_URL to the "
-                  "verified public HTTPS API origin."
-              )
-          PY
+              raise SystemExit("Set PRODUCTION_API_URL to the CloudFront HTTPS URL.")
+          PYURL
         env:
           PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
 
@@ -306,11 +303,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for required in AWS_REGION API_DOMAIN ACM_CERTIFICATE_ARN OTEL_COLLECTOR_ROLE_ARN OPENAI_BASE_URL OPENAI_MODEL; do
+          for required in AWS_REGION ALB_CLOUDFRONT_SECURITY_GROUP_ID OTEL_COLLECTOR_ROLE_ARN OPENAI_BASE_URL OPENAI_MODEL; do
             case "$required" in
               AWS_REGION) value="$AWS_REGION" ;;
-              API_DOMAIN) value="$API_DOMAIN" ;;
-              ACM_CERTIFICATE_ARN) value="$ACM_CERTIFICATE_ARN" ;;
+              ALB_CLOUDFRONT_SECURITY_GROUP_ID) value="$ALB_CLOUDFRONT_SECURITY_GROUP_ID" ;;
               OTEL_COLLECTOR_ROLE_ARN) value="$OTEL_COLLECTOR_ROLE_ARN" ;;
               OPENAI_BASE_URL) value="$OPENAI_BASE_URL" ;;
               OPENAI_MODEL) value="$OPENAI_MODEL" ;;
@@ -338,8 +334,7 @@ jobs:
             -e "s|GIT_SHA_PLACEHOLDER|${GITHUB_SHA}|g" \
             k8s/application.yaml | kubectl apply -f -
           sed \
-            -e "s|API_DOMAIN_PLACEHOLDER|${API_DOMAIN}|g" \
-            -e "s|ACM_CERTIFICATE_ARN_PLACEHOLDER|${ACM_CERTIFICATE_ARN}|g" \
+            -e "s|ALB_SECURITY_GROUP_ID_PLACEHOLDER|${ALB_CLOUDFRONT_SECURITY_GROUP_ID}|g" \
             k8s/ingress.yaml | kubectl apply -f -
 
       - name: Wait for workload and ingress reconciliation
@@ -350,6 +345,10 @@ jobs:
             --namespace journal-api --timeout=5m
           kubectl wait --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
             ingress/journal-api --namespace journal-api --timeout=10m
+          if [[ -z "${PRODUCTION_API_URL:-}" ]]; then
+            echo "CloudFront URL not configured yet; skipping public HTTPS smoke test for the initial rollout."
+            exit 0
+          fi
           response="$(curl --fail --silent --show-error \
             --retry 10 --retry-all-errors --retry-delay 6 --max-time 15 \
             "${PRODUCTION_API_URL%/}/version")"
