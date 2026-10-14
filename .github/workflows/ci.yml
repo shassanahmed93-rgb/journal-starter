@@ -208,8 +208,8 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-      DATABASE_ADMIN_SECRET_ARN: ${{ vars.DATABASE_ADMIN_SECRET_ARN }}
-      DATABASE_APP_SECRET_ARN: ${{ vars.DATABASE_APP_SECRET_ARN }}
+      DATABASE_ADMIN_SECRET_ARN: journal-api-production/database/admin
+      DATABASE_APP_SECRET_ARN: journal-api-production/database/app
       ALB_CLOUDFRONT_SECURITY_GROUP_ID: ${{ vars.ALB_CLOUDFRONT_SECURITY_GROUP_ID }}
       OTEL_COLLECTOR_ROLE_ARN: ${{ vars.OTEL_COLLECTOR_ROLE_ARN }}
       OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
