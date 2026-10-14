@@ -103,9 +103,6 @@ jobs:
       - name: Diagnose GitHub OIDC claims
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
         run: |
           set -euo pipefail
 
