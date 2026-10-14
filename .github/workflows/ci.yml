@@ -418,39 +418,18 @@ jobs:
           
         
           
-          # Validate the secret identifiers without printing their values.
-          for name in DATABASE_ADMIN_SECRET_ARN DATABASE_APP_SECRET_ARN; do 
-          value="${!name}"
-          if [[ -z "$value" || "$value" =~ [[:space:]] ]]; then 
-          echo "::error::$name is empty or contains whitespace."
-          exit 1 
+          # Validate the expected Secrets Manager names.
+          if [[ "$DATABASE_ADMIN_SECRET_ARN" != "journal-api-production/database/admin" ]]; then
+            echo "::error::DATABASE_ADMIN_SECRET_ARN does not match the expected secret name."
+            exit 1
           fi
-        
-          for name in DATABASE_ADMIN_SECRET_ARN DATABASE_APP_SECRET_ARN; do
-          value="${!name}"
-          if [[ "$value" != "journal-api-production/database/admin" &&
-          "$value" != "journal-api-production/database/app" &&
-          "$value" != arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/* ]]; then
-          echo "::error::$name has an unexpected value format. Check the production environment variable."
-          exit 1
+
+          if [[ "$DATABASE_APP_SECRET_ARN" != "journal-api-production/database/app" ]]; then
+            echo "::error::DATABASE_APP_SECRET_ARN does not match the expected secret name."
+            exit 1
           fi
-          done
-          
-          python3 - <<'PY'
 
-          import os
 
-          for name in ("DATABASE_ADMIN_SECRET_ARN", "DATABASE_APP_SECRET_ARN"):
-              value = os.environ.get(name, "")
-              print(
-                  f"{name}: "
-                  f"present={bool(value)}, "
-                  f"length={len(value)}, "
-                  f"starts_with_arn={value.startswith('arn:aws:secretsmanager:')}, "
-                  f"has_whitespace={any(c.isspace() for c in value)}, "
-                  f"has_placeholder=('database_admin_secret_arn' in value.lower() or 'database_app_secret_arn' in value.lower())"
-              )
-          PY
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
             --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
