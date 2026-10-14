@@ -12,6 +12,8 @@ TEST_DATABASE_URL=postgresql://postgres/career_journal_test
 OPENAI_API_KEY=placeholder
 OPENAI_BASE_URL=https://example.invalid/v1
 OPENAI_MODEL=placeholder
+API_ACCESS_TOKEN=test-access-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+API_ADMIN_TOKEN=test-admin-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 """
 
 
@@ -24,6 +26,8 @@ def dotenv_file(monkeypatch, tmp_path):
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
         "OPENAI_MODEL",
+        "API_ACCESS_TOKEN",
+        "API_ADMIN_TOKEN",
     ):
         monkeypatch.delenv(name, raising=False)
     path = tmp_path / ".env"
@@ -78,6 +82,12 @@ def test_exported_environment_overrides_dotenv(dotenv_file, monkeypatch):
         ("openai_api_key", " \t\n "),
         ("openai_model", ""),
         ("openai_model", " \t\n "),
+        ("api_access_token", ""),
+        ("api_access_token", " \t\n "),
+        ("api_access_token", "short-test-token"),
+        ("api_admin_token", ""),
+        ("api_admin_token", " \t\n "),
+        ("api_admin_token", "short-test-token"),
     ],
 )
 def test_rejects_invalid_required_settings(field, value):
@@ -87,7 +97,14 @@ def test_rejects_invalid_required_settings(field, value):
 
 @pytest.mark.parametrize(
     "name",
-    ["DATABASE_URL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"],
+    [
+        "DATABASE_URL",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_MODEL",
+        "API_ACCESS_TOKEN",
+        "API_ADMIN_TOKEN",
+    ],
 )
 def test_requires_every_setting(name, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
@@ -134,3 +151,14 @@ def test_database_credentials_are_hidden_in_repr_and_validation_errors():
             {**get_settings().model_dump(), "openai_api_key": {"unexpected": marker}}
         )
     assert marker not in str(error.value)
+
+
+def test_api_tokens_must_differ():
+    with pytest.raises(ValidationError, match="API access and administrator tokens must differ"):
+        Settings.model_validate(
+            {
+                **get_settings().model_dump(),
+                "api_access_token": "same-test-token-" + "x" * 40,
+                "api_admin_token": "same-test-token-" + "x" * 40,
+            }
+        )

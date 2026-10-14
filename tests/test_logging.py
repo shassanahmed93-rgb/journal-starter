@@ -1,5 +1,6 @@
 """Task 3 configuration, operation logs, lifecycle, and privacy acceptance."""
 
+import json
 import logging
 import subprocess
 import sys
@@ -9,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from api import main
-from api.logging_config import configure_logging
+from api.logging_config import JsonLogFormatter, configure_logging
 from api.models.entry import Entry, EntryCreate
 from api.repositories.interface_repository import DatabaseInterface
 from api.services.entry_service import EntryService
@@ -72,6 +73,20 @@ def test_sets_info_level_when_a_handler_already_exists(isolated_root_logger):
     configure_logging()
     assert root.level == logging.INFO
     assert handler in root.handlers
+
+
+def test_application_log_formatter_emits_structured_json():
+    record = logging.LogRecord(
+        "api.example", logging.INFO, __file__, 1, "synthetic event", (), None
+    )
+
+    formatted = JsonLogFormatter().format(record)
+
+    payload = json.loads(formatted)
+    assert payload["timestamp"]
+    assert payload["severity"] == "INFO"
+    assert payload["logger"] == "api.example"
+    assert payload["message"] == "synthetic event"
 
 
 @pytest.mark.exercise
@@ -267,7 +282,7 @@ def fake_database(monkeypatch):
     database = object()
 
     @asynccontextmanager
-    async def open_database(_url):
+    async def open_database(_url, *, require_ssl=False):
         events.append("ready")
         try:
             yield database
@@ -334,7 +349,7 @@ async def test_failed_startup_never_logs_readiness(failure, monkeypatch, caplog)
         raise ValueError("invalid startup configuration")
 
     @asynccontextmanager
-    async def fail_pool(_url):
+    async def fail_pool(_url, *, require_ssl=False):
         raise ValueError("pool unavailable")
         yield  # pragma: no cover
 

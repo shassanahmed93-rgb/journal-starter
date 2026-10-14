@@ -11,8 +11,9 @@ from api.repositories.interface_repository import DatabaseInterface
 
 
 class PostgresDB(DatabaseInterface):
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, *, require_ssl: bool = False) -> None:
         self._database_url = database_url
+        self._require_ssl = require_ssl
         self._pool: asyncpg.Pool | None = None
 
     @property
@@ -22,7 +23,10 @@ class PostgresDB(DatabaseInterface):
         return self._pool
 
     async def __aenter__(self) -> Self:
-        self._pool = await asyncpg.create_pool(self._database_url)
+        if self._require_ssl:
+            self._pool = await asyncpg.create_pool(self._database_url, ssl="require")
+        else:
+            self._pool = await asyncpg.create_pool(self._database_url)
         return self
 
     async def __aexit__(

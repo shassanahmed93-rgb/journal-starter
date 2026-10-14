@@ -1,0 +1,4 @@
+bucket       = "REPLACE_WITH_YOUR_STATE_BUCKET"
+key          = "journal-api/bootstrap/terraform.tfstate"
+region       = "REPLACE_WITH_YOUR_AWS_REGION"
+use_lockfile = true

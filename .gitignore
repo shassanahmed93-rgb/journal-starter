@@ -130,6 +130,12 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+terraform/state-bootstrap/terraform.tfstate*
 env/
 venv/
 ENV/

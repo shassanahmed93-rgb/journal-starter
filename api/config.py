@@ -1,6 +1,7 @@
+import re
 from functools import lru_cache
 
-from pydantic import Field, HttpUrl, PostgresDsn, SecretStr, field_validator
+from pydantic import Field, HttpUrl, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,10 @@ class Settings(BaseSettings):
         repr=False,
         description="PostgreSQL connection URL (e.g. postgresql://user:pass@host:5432/db).",
     )
+    database_ssl: bool = Field(
+        default=False,
+        description="Require TLS for PostgreSQL connections.",
+    )
     openai_api_key: SecretStr = Field(
         description=(
             "API key for a provider that supports the OpenAI Responses API. Task 4 uses it to "
@@ -32,6 +37,14 @@ class Settings(BaseSettings):
     )
     openai_model: str = Field(
         description="Provider model ID or deployment name passed to responses.create().",
+    )
+    api_access_token: SecretStr = Field(
+        repr=False,
+        description="Bearer token required for journal API access.",
+    )
+    api_admin_token: SecretStr = Field(
+        repr=False,
+        description="Distinct bearer token required for destructive journal operations.",
     )
 
     model_config = SettingsConfigDict(
@@ -68,6 +81,19 @@ class Settings(BaseSettings):
         if not value:
             raise ValueError("Model name must not be blank")
         return value
+
+    @field_validator("api_access_token", "api_admin_token")
+    @classmethod
+    def require_nonblank_api_token(cls, value: SecretStr) -> SecretStr:
+        if re.fullmatch(r"[A-Za-z0-9_-]{32,256}", value.get_secret_value()) is None:
+            raise ValueError("API bearer tokens must be 32-256 URL-safe characters")
+        return value
+
+    @model_validator(mode="after")
+    def require_distinct_api_tokens(self) -> Settings:
+        if self.api_access_token.get_secret_value() == self.api_admin_token.get_secret_value():
+            raise ValueError("API access and administrator tokens must differ")
+        return self
 
 
 @lru_cache

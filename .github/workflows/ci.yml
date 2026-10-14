@@ -1,23 +1,47 @@
-name: CI
+name: Journal API CI/CD
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: journal-api-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Code quality
+  test:
+    name: test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: career_journal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: career_journal
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/career_journal
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/career_journal_test
+      OPENAI_API_KEY: ci-placeholder-not-used-by-mocks
+      OPENAI_BASE_URL: https://example.invalid/v1
+      OPENAI_MODEL: ci-placeholder-not-used-by-mocks
+      API_ACCESS_TOKEN: ci-test-access-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      API_ADMIN_TOKEN: ci-test-admin-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -31,6 +55,16 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --locked
+
+      - name: Initialize application and test databases
+        run: |
+          PGPASSWORD=postgres psql \
+            -h localhost -U postgres -d career_journal \
+            -v ON_ERROR_STOP=1 \
+            -f database_setup.sql -f database_setup_test.sql
+
+      - name: Run tests
+        run: uv run pytest
 
       - name: Ruff check
         run: uv run ruff check .
@@ -41,112 +75,298 @@ jobs:
       - name: Pyright type check
         run: uv run pyright
 
-  safeguards:
-    name: Starter safeguards
+  build:
+    name: build
+    needs: test
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: career_journal
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+    permissions:
+      contents: read
+      id-token: write
     env:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: career_journal
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/career_journal
-      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/career_journal_test
-      # Required by api.config.Settings so the app boots. Tests never call a
-      # real LLM — Task 4 uses an SDK client with a mocked HTTP transport — so these
-      # values are never used for network requests.
-      OPENAI_API_KEY: ci-placeholder-not-used-by-mock
-      OPENAI_BASE_URL: https://example.invalid/v1
-      OPENAI_MODEL: ci-placeholder-not-used-by-mock
-
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      AWS_BUILD_ROLE_ARN: ${{ vars.AWS_BUILD_ROLE_ARN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.14
-
-      - name: Install dependencies
-        run: uv sync --locked
-
-      - name: Initialize application and test databases
+      - name: Build image tagged with the full commit SHA
         run: |
-          PGPASSWORD=postgres psql \
-            -h localhost -U postgres -d career_journal \
-            -v ON_ERROR_STOP=1 \
-            -f database_setup.sql -f database_setup_test.sql
+          docker build \
+            --build-arg "GIT_SHA=${GITHUB_SHA}" \
+            --tag "journal-api:${GITHUB_SHA}" \
+            .
 
-      - name: Run starter safeguards
-        run: uv run pytest -m "not exercise" -v
+      - name: Configure AWS credentials with GitHub OIDC
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.2.2
+        with:
+          role-to-assume: ${{ env.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: journal-api-build-${{ github.run_id }}
 
-  task:
-    name: Task acceptance
-    if: github.event_name == 'pull_request'
+      - name: Publish image to ECR
+        id: publish
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AWS_REGION" || { echo "::error::Set the AWS_REGION repository variable."; exit 1; }
+          test -n "$ECR_REPOSITORY" || { echo "::error::Set ECR_REPOSITORY from Terraform output."; exit 1; }
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          image="${registry}/${ECR_REPOSITORY}:${GITHUB_SHA}"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+          docker tag "journal-api:${GITHUB_SHA}" "$image"
+          describe_error="$(mktemp)"
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=${GITHUB_SHA}" >/dev/null 2>"$describe_error"; then
+            echo "Reusing existing immutable image for ${GITHUB_SHA}."
+          elif grep -q "ImageNotFoundException" "$describe_error"; then
+            docker push "$image"
+          else
+            cat "$describe_error" >&2
+            rm -f "$describe_error"
+            exit 1
+          fi
+          rm -f "$describe_error"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: deploy
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: career_journal
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_API_URL }}
+    permissions:
+      contents: read
+      id-token: write
     env:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: career_journal
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/career_journal
-      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/career_journal_test
-      OPENAI_API_KEY: ci-placeholder-not-used-by-mock
-      OPENAI_BASE_URL: https://example.invalid/v1
-      OPENAI_MODEL: ci-placeholder-not-used-by-mock
-
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      DATABASE_ADMIN_SECRET_ARN: ${{ vars.DATABASE_ADMIN_SECRET_ARN }}
+      DATABASE_APP_SECRET_ARN: ${{ vars.DATABASE_APP_SECRET_ARN }}
+      API_DOMAIN: ${{ vars.API_DOMAIN }}
+      ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+      OTEL_COLLECTOR_ROLE_ARN: ${{ vars.OTEL_COLLECTOR_ROLE_ARN }}
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+      PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
+      IMAGE: ${{ needs.build.outputs.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.14
-
-      - name: Install dependencies
-        run: uv sync --locked
-
-      - name: Initialize application and test databases
+      - name: Require a real HTTPS production API URL
+        shell: bash
         run: |
-          PGPASSWORD=postgres psql \
-            -h localhost -U postgres -d career_journal \
-            -v ON_ERROR_STOP=1 \
-            -f database_setup.sql -f database_setup_test.sql
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
 
-      - name: Run selected task and preceding exercises
-        run: uv run python -m scripts.ci_tests --event "$GITHUB_EVENT_PATH"
+          value = os.environ.get("PRODUCTION_API_URL", "").strip()
+          try:
+              parsed = urlsplit(value)
+              valid = (
+                  parsed.scheme == "https"
+                  and bool(parsed.hostname)
+                  and parsed.username is None
+                  and parsed.password is None
+                  and parsed.path in ("", "/")
+                  and not parsed.query
+                  and not parsed.fragment
+              )
+              parsed.port
+          except ValueError:
+              valid = False
+          if not valid:
+              raise SystemExit(
+                  "::error::Set production environment variable PRODUCTION_API_URL to the "
+                  "verified public HTTPS API origin."
+              )
+          PY
+        env:
+          PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
+
+      - name: Configure AWS credentials with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.2.2
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: journal-api-deploy-${{ github.run_id }}
+
+      - name: Configure kubectl
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$EKS_CLUSTER_NAME" || { echo "::error::Set EKS_CLUSTER_NAME from Terraform output."; exit 1; }
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          minor="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" \
+            --query 'cluster.version' --output text)"
+          kubectl_version="$(curl --fail --silent --show-error \
+            "https://dl.k8s.io/release/stable-${minor}.txt")"
+          curl --fail --silent --show-error --location \
+            "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl" \
+            --output /tmp/kubectl
+          curl --fail --silent --show-error --location \
+            "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl.sha256" \
+            --output /tmp/kubectl.sha256
+          echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum --check
+          sudo install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+
+      - name: Bootstrap the least-privilege database role and create runtime Secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          API_ACCESS_TOKEN: ${{ secrets.API_ACCESS_TOKEN }}
+          API_ADMIN_TOKEN: ${{ secrets.API_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_ADMIN_SECRET_ARN" || { echo "::error::Set DATABASE_ADMIN_SECRET_ARN from Terraform output."; exit 1; }
+          test -n "$DATABASE_APP_SECRET_ARN" || { echo "::error::Set DATABASE_APP_SECRET_ARN from Terraform output."; exit 1; }
+          test -n "$OPENAI_API_KEY" || { echo "::error::Set the OPENAI_API_KEY production environment secret."; exit 1; }
+          test -n "$API_ACCESS_TOKEN" || { echo "::error::Set API_ACCESS_TOKEN in the production environment."; exit 1; }
+          test -n "$API_ADMIN_TOKEN" || { echo "::error::Set API_ADMIN_TOKEN in the production environment."; exit 1; }
+          test "$API_ACCESS_TOKEN" != "$API_ADMIN_TOKEN" || { echo "::error::API_ACCESS_TOKEN and API_ADMIN_TOKEN must differ."; exit 1; }
+          python3 - <<'PY'
+          import os
+          import re
+
+          for key in ("API_ACCESS_TOKEN", "API_ADMIN_TOKEN"):
+              if re.fullmatch(r"[A-Za-z0-9_-]{32,256}", os.environ[key]) is None:
+                  raise SystemExit(f"::error::{key} must be 32-256 URL-safe characters.")
+          PY
+          umask 077
+          bootstrap_env="$(mktemp)"
+          runtime_env="$(mktemp)"
+          bootstrap_job="journal-api-db-bootstrap-${GITHUB_RUN_ID}"
+          cleanup() {
+            cleanup_status=$?
+            if ! rm -f "$bootstrap_env" "$runtime_env"; then
+              echo "::error::Unable to remove temporary database credential files."
+              cleanup_status=1
+            fi
+            if ! kubectl delete job "$bootstrap_job" \
+              --namespace journal-api --ignore-not-found --wait=true; then
+              echo "::error::Unable to remove the temporary database bootstrap Job."
+              cleanup_status=1
+            fi
+            if ! kubectl delete secret journal-api-db-bootstrap \
+              --namespace journal-api --ignore-not-found --wait=true; then
+              echo "::error::Unable to remove the temporary database bootstrap Secret."
+              cleanup_status=1
+            fi
+            exit "$cleanup_status"
+          }
+          trap cleanup EXIT
+          database_admin_secret="$(aws secretsmanager get-secret-value \
+            --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
+            --query SecretString --output text)"
+          database_app_secret="$(aws secretsmanager get-secret-value \
+            --secret-id "$DATABASE_APP_SECRET_ARN" \
+            --query SecretString --output text)"
+          echo "::add-mask::${database_admin_secret}"
+          echo "::add-mask::${database_app_secret}"
+          echo "::add-mask::${OPENAI_API_KEY}"
+          echo "::add-mask::${API_ACCESS_TOKEN}"
+          echo "::add-mask::${API_ADMIN_TOKEN}"
+          db_admin_user="$(jq -er '.username' <<< "$database_admin_secret")"
+          db_admin_password="$(jq -er '.password' <<< "$database_admin_secret")"
+          db_app_user="$(jq -er '.username' <<< "$database_app_secret")"
+          db_app_password="$(jq -er '.password' <<< "$database_app_secret")"
+          db_host="$(jq -er '.host' <<< "$database_app_secret")"
+          db_port="$(jq -er '.port' <<< "$database_app_secret")"
+          db_name="$(jq -er '.database' <<< "$database_app_secret")"
+          database_url="postgresql://${db_app_user}:${db_app_password}@${db_host}:${db_port}/${db_name}"
+          echo "::add-mask::${database_url}"
+          printf 'PGHOST=%s\nPGPORT=%s\nPGDATABASE=%s\nPGUSER=%s\nPGPASSWORD=%s\nAPP_DB_USERNAME=%s\nAPP_DB_PASSWORD=%s\n' \
+            "$db_host" "$db_port" "$db_name" "$db_admin_user" "$db_admin_password" "$db_app_user" "$db_app_password" \
+            > "$bootstrap_env"
+          printf 'DATABASE_URL=%s\nDATABASE_SSL=true\nOPENAI_API_KEY=%s\nAPI_ACCESS_TOKEN=%s\nAPI_ADMIN_TOKEN=%s\n' \
+            "$database_url" "$OPENAI_API_KEY" "$API_ACCESS_TOKEN" "$API_ADMIN_TOKEN" \
+            > "$runtime_env"
+          kubectl create secret generic journal-api-runtime \
+            --namespace journal-api \
+            --from-env-file="$runtime_env" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic journal-api-db-bootstrap \
+            --namespace journal-api \
+            --from-env-file="$bootstrap_env" --dry-run=client -o yaml | kubectl apply -f -
+          sed "s/journal-api-db-bootstrap-00000000/${bootstrap_job}/g" k8s/database-bootstrap.yaml \
+            | kubectl apply -f -
+          kubectl wait --for=condition=complete "job/${bootstrap_job}" \
+            --namespace journal-api --timeout=5m
+
+      - name: Apply collector, application, and HTTPS ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required in AWS_REGION API_DOMAIN ACM_CERTIFICATE_ARN OTEL_COLLECTOR_ROLE_ARN OPENAI_BASE_URL OPENAI_MODEL; do
+            case "$required" in
+              AWS_REGION) value="$AWS_REGION" ;;
+              API_DOMAIN) value="$API_DOMAIN" ;;
+              ACM_CERTIFICATE_ARN) value="$ACM_CERTIFICATE_ARN" ;;
+              OTEL_COLLECTOR_ROLE_ARN) value="$OTEL_COLLECTOR_ROLE_ARN" ;;
+              OPENAI_BASE_URL) value="$OPENAI_BASE_URL" ;;
+              OPENAI_MODEL) value="$OPENAI_MODEL" ;;
+            esac
+            if [[ -z "$value" ]]; then
+              echo "::error::Set the ${required} production environment variable."
+              exit 1
+            fi
+          done
+          sed \
+            -e "s|OTEL_COLLECTOR_ROLE_ARN_PLACEHOLDER|${OTEL_COLLECTOR_ROLE_ARN}|g" \
+            -e "s|AWS_REGION_PLACEHOLDER|${AWS_REGION}|g" \
+            k8s/otel-collector.yaml | kubectl apply -f -
+          kubectl create configmap journal-api-config \
+            --namespace journal-api \
+            --from-literal="OPENAI_BASE_URL=${OPENAI_BASE_URL}" \
+            --from-literal="OPENAI_MODEL=${OPENAI_MODEL}" \
+            --from-literal=OTEL_SERVICE_NAME=journal-api \
+            --from-literal=DEPLOYMENT_ENVIRONMENT=production \
+            --from-literal=OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability.svc.cluster.local:4317 \
+            --from-literal=PYTHONDONTWRITEBYTECODE=1 \
+            --dry-run=client -o yaml | kubectl apply -f -
+          sed \
+            -e "s|IMAGE_PLACEHOLDER|${IMAGE}|g" \
+            -e "s|GIT_SHA_PLACEHOLDER|${GITHUB_SHA}|g" \
+            k8s/application.yaml | kubectl apply -f -
+          sed \
+            -e "s|API_DOMAIN_PLACEHOLDER|${API_DOMAIN}|g" \
+            -e "s|ACM_CERTIFICATE_ARN_PLACEHOLDER|${ACM_CERTIFICATE_ARN}|g" \
+            k8s/ingress.yaml | kubectl apply -f -
+
+      - name: Wait for workload and ingress reconciliation
+        run: |
+          kubectl rollout status deployment/otel-collector \
+            --namespace observability --timeout=5m
+          kubectl rollout status deployment/journal-api \
+            --namespace journal-api --timeout=5m
+          kubectl wait --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
+            ingress/journal-api --namespace journal-api --timeout=10m
+          response="$(curl --fail --silent --show-error \
+            --retry 10 --retry-all-errors --retry-delay 6 --max-time 15 \
+            "${PRODUCTION_API_URL%/}/version")"
+          printf '%s' "$response" | DEPLOYED_SHA="$GITHUB_SHA" python3 -c '
+          import json
+          import os
+          import re
+          import sys
+
+          response = json.load(sys.stdin)
+          deployed = response.get("commit")
+          expected = os.environ["DEPLOYED_SHA"]
+          if not isinstance(deployed, str) or not re.fullmatch(r"[0-9a-f]{40}", deployed):
+              raise SystemExit("Production /version did not return a full commit SHA.")
+          if deployed != expected:
+              raise SystemExit(
+                  f"Production SHA {deployed} does not match deployed SHA {expected}."
+              )
+          print(f"PASS: production HTTPS /version reports deployed commit {expected}")
+          '

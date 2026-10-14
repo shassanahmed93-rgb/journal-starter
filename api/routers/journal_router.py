@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from openai import APIStatusError, APITimeoutError, OpenAIError, RateLimitError
 from pydantic import ValidationError
 
+from api.auth import require_admin_access, require_api_access
 from api.models.entry import (
     AnalysisResponse,
     DetailResponse,
@@ -20,7 +21,7 @@ from api.repositories.interface_repository import DatabaseInterface
 from api.services.entry_service import EntryService
 from api.services.llm_service import InvalidAnalysisResponseError, analyze_journal_entry
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_api_access)])
 logger = logging.getLogger(__name__)
 
 
@@ -103,7 +104,7 @@ async def update_entry(
     return result
 
 
-@router.delete("/entries/{entry_id}")
+@router.delete("/entries/{entry_id}", dependencies=[Depends(require_admin_access)])
 async def delete_entry(
     entry_id: str,
     entry_service: EntryServiceDependency,
@@ -115,7 +116,7 @@ async def delete_entry(
     return DetailResponse(detail="Entry deleted successfully")
 
 
-@router.delete("/entries")
+@router.delete("/entries", dependencies=[Depends(require_admin_access)])
 async def delete_all_entries(
     entry_service: EntryServiceDependency,
 ) -> DetailResponse:

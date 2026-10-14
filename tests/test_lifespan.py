@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
 from api import main
-from api.config import Settings
+from api.config import Settings, get_settings
 from api.repositories.postgres_repository import PostgresDB
 
 
@@ -18,8 +18,11 @@ def application(test_database_url: str, cleanup_database: None, monkeypatch) -> 
         openai_api_key=SecretStr("placeholder"),
         openai_base_url="https://example.invalid/v1",
         openai_model="placeholder",
+        api_access_token=SecretStr("test-access-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        api_admin_token=SecretStr("test-admin-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
     )
     monkeypatch.setattr(main, "get_settings", lambda: settings)
+    monkeypatch.setitem(main.app.dependency_overrides, get_settings, lambda: settings)
     return main.app
 
 
@@ -42,7 +45,13 @@ async def test_one_pool_per_lifespan_is_reused_and_closed(
             assert database.pool.get_size() > 0
 
             async with AsyncClient(
-                transport=ASGITransport(app=application), base_url="http://test"
+                transport=ASGITransport(app=application),
+                base_url="http://test",
+                headers={
+                    "Authorization": (
+                        "Bearer test-access-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    )
+                },
             ) as client:
                 response = await client.post("/entries", json=sample_entry_data)
                 assert response.status_code == 201

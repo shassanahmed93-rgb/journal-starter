@@ -32,6 +32,8 @@ def isolated_no_db_settings(request, monkeypatch):
         "OPENAI_API_KEY": "test-placeholder",
         "OPENAI_BASE_URL": "https://example.invalid/v1",
         "OPENAI_MODEL": "test-model",
+        "API_ACCESS_TOKEN": "test-access-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "API_ADMIN_TOKEN": "test-admin-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     }.items():
         monkeypatch.setenv(name, value)
     get_settings.cache_clear()
@@ -84,14 +86,29 @@ async def test_client(test_db: PostgresDB, monkeypatch) -> AsyncGenerator[AsyncC
     This client can make requests to the API without starting a server.
     """
 
+    monkeypatch.setenv(
+        "API_ACCESS_TOKEN", "test-access-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    )
+    monkeypatch.setenv(
+        "API_ADMIN_TOKEN", "test-admin-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    )
+    get_settings.cache_clear()
+
     def override_database() -> PostgresDB:
         return test_db
 
     # ASGITransport does not start the app lifespan, so the application database is never opened.
     monkeypatch.setitem(app.dependency_overrides, get_database, override_database)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={
+            "Authorization": ("Bearer test-access-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        },
+    ) as client:
         yield client
+    get_settings.cache_clear()
 
 
 @pytest.fixture

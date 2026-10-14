@@ -34,6 +34,8 @@ from api.services.llm_service import InvalidAnalysisResponseError
 
 PROVIDER_REQUEST = Request("POST", "https://example.invalid/v1/responses")
 ROUTER_LOGGER = "api.routers.journal_router"
+TEST_ACCESS_TOKEN = "test-access-" + "a" * 48
+TEST_ADMIN_TOKEN = "test-admin-" + "b" * 48
 
 
 def assert_safe_error_log(caplog, error, entry_id):
@@ -253,7 +255,11 @@ class TestUpdateEntry:
         service.update_entry.return_value = None
         monkeypatch.setitem(app.dependency_overrides, get_entry_service, lambda: service)
         payload = {**sample_entry_data, field: value}
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {TEST_ACCESS_TOKEN}"},
+        ) as client:
             response = await client.patch("/entries/entry-id", json=payload)
         assert response.status_code == 422
         assert [error["loc"] for error in response.json()["detail"]] == [["body", field]]
@@ -283,7 +289,11 @@ class TestUpdateEntry:
             id="entry-id", created_at=now, updated_at=now, **sample_entry_data
         )
         monkeypatch.setitem(app.dependency_overrides, get_entry_service, lambda: service)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {TEST_ACCESS_TOKEN}"},
+        ) as client:
             response = await client.patch("/entries/entry-id", json=payload)
         assert response.status_code == 200
         service.update_entry.assert_awaited_once_with("entry-id", expected)
@@ -428,7 +438,9 @@ class TestDeleteEntry:
     async def test_delete_entry_success(self, test_client: AsyncClient, created_entry: dict):
         """Test successfully deleting a single entry."""
         entry_id = created_entry["id"]
-        response = await test_client.delete(f"/entries/{entry_id}")
+        response = await test_client.delete(
+            f"/entries/{entry_id}", headers={"Authorization": f"Bearer {TEST_ADMIN_TOKEN}"}
+        )
 
         assert response.status_code == 200
 
@@ -440,7 +452,9 @@ class TestDeleteEntry:
     async def test_delete_entry_not_found(self, test_client: AsyncClient):
         """Test that deleting a non-existent entry returns 404."""
         fake_id = "00000000-0000-0000-0000-000000000000"
-        response = await test_client.delete(f"/entries/{fake_id}")
+        response = await test_client.delete(
+            f"/entries/{fake_id}", headers={"Authorization": f"Bearer {TEST_ADMIN_TOKEN}"}
+        )
 
         assert response.status_code == 404
 
@@ -450,7 +464,11 @@ class TestDeleteEntry:
         service = AsyncMock(spec=EntryService)
         service.delete_entry.return_value = deleted
         monkeypatch.setitem(app.dependency_overrides, get_entry_service, lambda: service)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {TEST_ADMIN_TOKEN}"},
+        ) as client:
             response = await client.delete("/entries/entry-id")
         assert response.status_code == (200 if deleted else 404)
         if deleted:
@@ -478,7 +496,9 @@ class TestDeleteAllEntries:
         assert len(created_ids) == 3
         assert {entry["id"] for entry in before.json()["entries"]} == created_ids
 
-        response = await test_client.delete("/entries")
+        response = await test_client.delete(
+            "/entries", headers={"Authorization": f"Bearer {TEST_ADMIN_TOKEN}"}
+        )
 
         assert response.status_code == 200
         assert response.json()["detail"] == "All entries deleted"
