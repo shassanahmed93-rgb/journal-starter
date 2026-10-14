@@ -415,13 +415,34 @@ jobs:
           }
 
           trap cleanup EXIT
+          
+        
+          
+          # Validate the secret identifiers without printing their values.
+          for name in DATABASE_ADMIN_SECRET_ARN DATABASE_APP_SECRET_ARN; do
+            value="${!name:-}"
+
+            if [[ -z "$value" ]]; then
+              echo "::error::$name is empty or unavailable."
+              exit 1
+            fi
+
+            if [[ ! "$value" =~ ^arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/(admin|app)-[A-Za-z0-9]+$ ]]; then
+              echo "::error::$name is not the expected Secrets Manager ARN format. Check the production environment variable in GitHub Settings."
+              exit 1
+            fi
+
+            echo "$name passed ARN format validation."
+          done
 
           database_admin_secret="$(aws secretsmanager get-secret-value \
+            --region "$AWS_REGION" \
             --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
             --query SecretString \
             --output text)"
 
           database_app_secret="$(aws secretsmanager get-secret-value \
+            --region "$AWS_REGION" \
             --secret-id "$DATABASE_APP_SECRET_ARN" \
             --query SecretString \
             --output text)"
