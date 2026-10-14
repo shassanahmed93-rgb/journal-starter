@@ -1,3 +1,4 @@
+
 name: Journal API CI/CD
 
 on:
@@ -134,31 +135,6 @@ jobs:
           print("OIDC audience:", claims.get("aud"))
           PY
 
-      - name: Diagnose deploy OIDC claims
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          response="$(curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
-
-          token="$(jq -er '.value' <<< "$response")"
-          echo "::add-mask::${token}"
-
-          TOKEN="$token" python3 - <<'PY'
-          import base64
-          import json
-          import os
-
-          parts = os.environ["TOKEN"].split(".")
-          payload = parts[1] + "=" * (-len(parts[1]) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-
-          print("OIDC subject:", claims.get("sub"))
-          print("OIDC audience:", claims.get("aud"))
-          PY
-
       - name: Configure AWS credentials with GitHub OIDC
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.2.2
@@ -173,8 +149,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$AWS_REGION" || { echo "::error::Set the AWS_REGION repository variable."; exit 1; }
-          test -n "$ECR_REPOSITORY" || { echo "::error::Set ECR_REPOSITORY from Terraform output."; exit 1; }
+
+          test -n "$AWS_REGION" || {
+            echo "::error::Set the AWS_REGION repository variable."
+            exit 1
+          }
+
+          test -n "$ECR_REPOSITORY" || {
+            echo "::error::Set ECR_REPOSITORY from Terraform output."
+            exit 1
+          }
 
           account_id="$(aws sts get-caller-identity --query Account --output text)"
           registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -186,45 +170,28 @@ jobs:
           docker tag "journal-api:${GITHUB_SHA}" "$image"
 
           describe_error="$(mktemp)"
+
           if aws ecr describe-images \
             --repository-name "$ECR_REPOSITORY" \
-            --image-ids "imageTag=${GITHUB_SHA}" >/dev/null 2>"$describe_error"; then
+            --image-ids "imageTag=${GITHUB_SHA}" \
+            >/dev/null 2>"$describe_error"; then
+
             echo "Reusing existing immutable image for ${GITHUB_SHA}."
+
           elif grep -q "ImageNotFoundException" "$describe_error"; then
+
             docker push "$image"
+
           else
+
             cat "$describe_error" >&2
             rm -f "$describe_error"
             exit 1
+
           fi
 
           rm -f "$describe_error"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-
-      - name: Diagnose deploy OIDC claims
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          response="$(curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
-
-          token="$(jq -er '.value' <<< "$response")"
-          echo "::add-mask::${token}"
-
-          TOKEN="$token" python3 - <<'PY'
-          import base64
-          import json
-          import os
-
-          parts = os.environ["TOKEN"].split(".")
-          payload = parts[1] + "=" * (-len(parts[1]) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-
-          print("OIDC subject:", claims.get("sub"))
-          print("OIDC audience:", claims.get("aud"))
-          PY
 
   deploy:
     name: deploy
@@ -260,11 +227,13 @@ jobs:
           PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: |
           set -euo pipefail
+
           python3 - <<'PYURL'
           import os
           from urllib.parse import urlsplit
 
           value = os.environ.get("PRODUCTION_API_URL", "").strip()
+
           try:
               parsed = urlsplit(value)
               valid = (
@@ -281,13 +250,20 @@ jobs:
               valid = False
 
           if not valid:
-              raise SystemExit("Set PRODUCTION_API_URL to the CloudFront HTTPS URL.")
+              raise SystemExit(
+                  "Set PRODUCTION_API_URL to the CloudFront HTTPS URL."
+              )
           PYURL
 
       - name: Diagnose deploy OIDC claims
         shell: bash
         run: |
           set -euo pipefail
+
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "::error::GitHub OIDC request variables are unavailable."
+            exit 1
+          fi
 
           response="$(curl --fail --silent --show-error \
             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
@@ -302,7 +278,11 @@ jobs:
           import os
 
           parts = os.environ["TOKEN"].split(".")
-          payload = parts[1] + "=" * (-len(parts[1]) % 4)
+          if len(parts) != 3:
+              raise SystemExit("Unexpected OIDC token format.")
+
+          payload = parts[1]
+          payload += "=" * (-len(payload) % 4)
           claims = json.loads(base64.urlsafe_b64decode(payload))
 
           print("OIDC subject:", claims.get("sub"))
@@ -320,12 +300,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$EKS_CLUSTER_NAME" || { echo "::error::Set EKS_CLUSTER_NAME from Terraform output."; exit 1; }
 
-          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          test -n "$EKS_CLUSTER_NAME" || {
+            echo "::error::Set EKS_CLUSTER_NAME from Terraform output."
+            exit 1
+          }
 
-          minor="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" \
-            --query 'cluster.version' --output text)"
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
+
+          minor="$(aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --query 'cluster.version' \
+            --output text)"
 
           kubectl_version="$(curl --fail --silent --show-error \
             "https://dl.k8s.io/release/stable-${minor}.txt")"
@@ -338,8 +326,11 @@ jobs:
             "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl.sha256" \
             --output /tmp/kubectl.sha256
 
-          echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum --check
-          sudo install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+          echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" \
+            | sha256sum --check
+
+          sudo install -o root -g root -m 0755 \
+            /tmp/kubectl /usr/local/bin/kubectl
 
       - name: Bootstrap the least-privilege database role and create runtime Secrets
         env:
@@ -350,12 +341,35 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -n "$DATABASE_ADMIN_SECRET_ARN" || { echo "::error::Set DATABASE_ADMIN_SECRET_ARN from Terraform output."; exit 1; }
-          test -n "$DATABASE_APP_SECRET_ARN" || { echo "::error::Set DATABASE_APP_SECRET_ARN from Terraform output."; exit 1; }
-          test -n "$OPENAI_API_KEY" || { echo "::error::Set the OPENAI_API_KEY production environment secret."; exit 1; }
-          test -n "$API_ACCESS_TOKEN" || { echo "::error::Set API_ACCESS_TOKEN in the production environment."; exit 1; }
-          test -n "$API_ADMIN_TOKEN" || { echo "::error::Set API_ADMIN_TOKEN in the production environment."; exit 1; }
-          test "$API_ACCESS_TOKEN" != "$API_ADMIN_TOKEN" || { echo "::error::API_ACCESS_TOKEN and API_ADMIN_TOKEN must differ."; exit 1; }
+          test -n "$DATABASE_ADMIN_SECRET_ARN" || {
+            echo "::error::Set DATABASE_ADMIN_SECRET_ARN from Terraform output."
+            exit 1
+          }
+
+          test -n "$DATABASE_APP_SECRET_ARN" || {
+            echo "::error::Set DATABASE_APP_SECRET_ARN from Terraform output."
+            exit 1
+          }
+
+          test -n "$OPENAI_API_KEY" || {
+            echo "::error::Set the OPENAI_API_KEY production environment secret."
+            exit 1
+          }
+
+          test -n "$API_ACCESS_TOKEN" || {
+            echo "::error::Set API_ACCESS_TOKEN in the production environment."
+            exit 1
+          }
+
+          test -n "$API_ADMIN_TOKEN" || {
+            echo "::error::Set API_ADMIN_TOKEN in the production environment."
+            exit 1
+          }
+
+          test "$API_ACCESS_TOKEN" != "$API_ADMIN_TOKEN" || {
+            echo "::error::API_ACCESS_TOKEN and API_ADMIN_TOKEN must differ."
+            exit 1
+          }
 
           python3 - <<'PY'
           import os
@@ -363,7 +377,9 @@ jobs:
 
           for key in ("API_ACCESS_TOKEN", "API_ADMIN_TOKEN"):
               if re.fullmatch(r"[A-Za-z0-9_-]{32,256}", os.environ[key]) is None:
-                  raise SystemExit(f"::error::{key} must be 32-256 URL-safe characters.")
+                  raise SystemExit(
+                      f"::error::{key} must be 32-256 URL-safe characters."
+                  )
           PY
 
           umask 077
@@ -373,31 +389,42 @@ jobs:
 
           cleanup() {
             cleanup_status=$?
+
             if ! rm -f "$bootstrap_env" "$runtime_env"; then
               echo "::error::Unable to remove temporary database credential files."
               cleanup_status=1
             fi
+
             if ! kubectl delete job "$bootstrap_job" \
-              --namespace journal-api --ignore-not-found --wait=true; then
+              --namespace journal-api \
+              --ignore-not-found \
+              --wait=true; then
               echo "::error::Unable to remove the temporary database bootstrap Job."
               cleanup_status=1
             fi
+
             if ! kubectl delete secret journal-api-db-bootstrap \
-              --namespace journal-api --ignore-not-found --wait=true; then
+              --namespace journal-api \
+              --ignore-not-found \
+              --wait=true; then
               echo "::error::Unable to remove the temporary database bootstrap Secret."
               cleanup_status=1
             fi
+
             exit "$cleanup_status"
           }
+
           trap cleanup EXIT
 
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
-            --query SecretString --output text)"
+            --query SecretString \
+            --output text)"
 
           database_app_secret="$(aws secretsmanager get-secret-value \
             --secret-id "$DATABASE_APP_SECRET_ARN" \
-            --query SecretString --output text)"
+            --query SecretString \
+            --output text)"
 
           echo "::add-mask::${database_admin_secret}"
           echo "::add-mask::${database_app_secret}"
@@ -417,33 +444,45 @@ jobs:
           echo "::add-mask::${database_url}"
 
           printf 'PGHOST=%s\nPGPORT=%s\nPGDATABASE=%s\nPGUSER=%s\nPGPASSWORD=%s\nAPP_DB_USERNAME=%s\nAPP_DB_PASSWORD=%s\n' \
-            "$db_host" "$db_port" "$db_name" "$db_admin_user" "$db_admin_password" "$db_app_user" "$db_app_password" \
+            "$db_host" "$db_port" "$db_name" \
+            "$db_admin_user" "$db_admin_password" \
+            "$db_app_user" "$db_app_password" \
             > "$bootstrap_env"
 
           printf 'DATABASE_URL=%s\nDATABASE_SSL=true\nOPENAI_API_KEY=%s\nAPI_ACCESS_TOKEN=%s\nAPI_ADMIN_TOKEN=%s\n' \
-            "$database_url" "$OPENAI_API_KEY" "$API_ACCESS_TOKEN" "$API_ADMIN_TOKEN" \
+            "$database_url" "$OPENAI_API_KEY" \
+            "$API_ACCESS_TOKEN" "$API_ADMIN_TOKEN" \
             > "$runtime_env"
 
           kubectl create secret generic journal-api-runtime \
             --namespace journal-api \
-            --from-env-file="$runtime_env" --dry-run=client -o yaml | kubectl apply -f -
+            --from-env-file="$runtime_env" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
           kubectl create secret generic journal-api-db-bootstrap \
             --namespace journal-api \
-            --from-env-file="$bootstrap_env" --dry-run=client -o yaml | kubectl apply -f -
+            --from-env-file="$bootstrap_env" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-          sed "s/journal-api-db-bootstrap-00000000/${bootstrap_job}/g" k8s/database-bootstrap.yaml \
-            | kubectl apply -f -
+          sed "s/journal-api-db-bootstrap-00000000/${bootstrap_job}/g" \
+            k8s/database-bootstrap.yaml | kubectl apply -f -
 
           kubectl wait --for=condition=complete "job/${bootstrap_job}" \
-            --namespace journal-api --timeout=5m
+            --namespace journal-api \
+            --timeout=5m
 
       - name: Apply collector, application, and HTTPS ingress
         shell: bash
         run: |
           set -euo pipefail
 
-          for required in AWS_REGION ALB_CLOUDFRONT_SECURITY_GROUP_ID OTEL_COLLECTOR_ROLE_ARN OPENAI_BASE_URL OPENAI_MODEL; do
+          for required in \
+            AWS_REGION \
+            ALB_CLOUDFRONT_SECURITY_GROUP_ID \
+            OTEL_COLLECTOR_ROLE_ARN \
+            OPENAI_BASE_URL \
+            OPENAI_MODEL; do
+
             case "$required" in
               AWS_REGION) value="$AWS_REGION" ;;
               ALB_CLOUDFRONT_SECURITY_GROUP_ID) value="$ALB_CLOUDFRONT_SECURITY_GROUP_ID" ;;
@@ -488,13 +527,17 @@ jobs:
           set -euo pipefail
 
           kubectl rollout status deployment/otel-collector \
-            --namespace observability --timeout=5m
+            --namespace observability \
+            --timeout=5m
 
           kubectl rollout status deployment/journal-api \
-            --namespace journal-api --timeout=5m
+            --namespace journal-api \
+            --timeout=5m
 
           kubectl wait --for=jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
-            ingress/journal-api --namespace journal-api --timeout=10m
+            ingress/journal-api \
+            --namespace journal-api \
+            --timeout=10m
 
           if [[ -z "${PRODUCTION_API_URL:-}" ]]; then
             echo "CloudFront URL not configured yet; skipping public HTTPS smoke test for the initial rollout."
@@ -502,7 +545,10 @@ jobs:
           fi
 
           response="$(curl --fail --silent --show-error \
-            --retry 10 --retry-all-errors --retry-delay 6 --max-time 15 \
+            --retry 10 \
+            --retry-all-errors \
+            --retry-delay 6 \
+            --max-time 15 \
             "${PRODUCTION_API_URL%/}/version")"
 
           printf '%s' "$response" | DEPLOYED_SHA="$GITHUB_SHA" python3 -c '
