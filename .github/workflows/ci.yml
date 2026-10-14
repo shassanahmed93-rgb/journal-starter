@@ -434,7 +434,20 @@ jobs:
 
             echo "$name passed ARN format validation."
           done
+          python3 - <<'PY'
+          import os
 
+          for name in ("DATABASE_ADMIN_SECRET_ARN", "DATABASE_APP_SECRET_ARN"):
+              value = os.environ.get(name, "")
+              print(
+                  f"{name}: "
+                  f"present={bool(value)}, "
+                  f"length={len(value)}, "
+                  f"starts_with_arn={value.startswith('arn:aws:secretsmanager:')}, "
+                  f"has_whitespace={any(c.isspace() for c in value)}, "
+                  f"has_placeholder=('database_admin_secret_arn' in value.lower() or 'database_app_secret_arn' in value.lower())"
+              )
+          PY
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
             --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
