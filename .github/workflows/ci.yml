@@ -425,14 +425,19 @@ jobs:
           echo "::error::$name is empty or contains whitespace."
           exit 1 
           fi
+        
+          for name in DATABASE_ADMIN_SECRET_ARN DATABASE_APP_SECRET_ARN; do
+          value="${!name}"
           if [[ "$value" != "journal-api-production/database/admin" &&
           "$value" != "journal-api-production/database/app" &&
-          "$value" != arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/* ]];
+          "$value" != arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/* ]]; then
           echo "::error::$name has an unexpected value format. Check the production environment variable."
           exit 1
           fi
           done
+          
           python3 - <<'PY'
+
           import os
 
           for name in ("DATABASE_ADMIN_SECRET_ARN", "DATABASE_APP_SECRET_ARN"):
