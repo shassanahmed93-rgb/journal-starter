@@ -1,4 +1,3 @@
-```yaml
 name: Journal API CI/CD
 
 on:
