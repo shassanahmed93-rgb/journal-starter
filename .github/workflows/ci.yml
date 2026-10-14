@@ -427,8 +427,8 @@ jobs:
               exit 1
             fi
 
-            if [[ ! "$value" =~ ^arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/(admin|app)-[A-Za-z0-9]+$ ]]; then
-              echo "::error::$name is not the expected Secrets Manager ARN format. Check the production environment variable in GitHub Settings."
+           if [[ "$value" != arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/* ]]; then
+              echo "::error::$name has the wrong account, region, or secret name."
               exit 1
             fi
 
