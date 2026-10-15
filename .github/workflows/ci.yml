@@ -14,9 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Run tests on GitHub-hosted runners.
+  # Do not execute pull-request code on the self-hosted VPC runner.
   test:
     name: test
-    runs-on: [self-hosted, linux, x64, journal-api-vpc]
+    runs-on: ubuntu-latest
 
     services:
       postgres:
@@ -78,6 +80,7 @@ jobs:
       - name: Pyright type check
         run: uv run pyright
 
+  # Build and publish the immutable image from a GitHub-hosted runner.
   build:
     name: build
     needs: test
@@ -198,11 +201,12 @@ jobs:
           rm -f "$describe_error"
           echo "image=$image" >> "$GITHUB_OUTPUT"
 
+  # Only the deployment job uses the private-VPC self-hosted runner.
   deploy:
     name: deploy
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, journal-api-vpc]
 
     environment:
       name: production
@@ -228,19 +232,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate production HTTPS URL when configured
-        if: ${{ vars.PRODUCTION_API_URL != '' }}
+      - name: Validate required deployment settings
         shell: bash
-        env:
-          PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: |
           set -euo pipefail
 
-          python3 - <<'PYURL'
+          for name in AWS_REGION AWS_DEPLOY_ROLE_ARN EKS_CLUSTER_NAME; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required variable $name is empty."
+              exit 1
+            fi
+          done
+
+          if [[ -z "${IMAGE:-}" ]]; then
+            echo "::error::The build job did not provide an image."
+            exit 1
+          fi
+
+          if [[ -n "${PRODUCTION_API_URL:-}" ]]; then
+            PRODUCTION_API_URL="$PRODUCTION_API_URL" python3 - <<'PY'
           import os
           from urllib.parse import urlsplit
 
-          value = os.environ.get("PRODUCTION_API_URL", "").strip()
+          value = os.environ["PRODUCTION_API_URL"].strip()
 
           try:
               parsed = urlsplit(value)
@@ -259,9 +273,11 @@ jobs:
 
           if not valid:
               raise SystemExit(
-                  "Set PRODUCTION_API_URL to the CloudFront HTTPS URL."
+                  "PRODUCTION_API_URL must be an HTTPS base URL without credentials, "
+                  "a path, query, or fragment."
               )
-          PYURL
+          PY
+          fi
 
       - name: Diagnose deploy OIDC claims
         shell: bash
@@ -304,33 +320,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: journal-api-deploy-${{ github.run_id }}
 
-      - name: Configure and diagnose EKS connectivity
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Runner public IP: $(curl -s --max-time 5 https://checkip.amazonaws.com || echo unknown)"
-
-          aws eks update-kubeconfig \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION"
-
-          endpoint="$(aws eks describe-cluster \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION" \
-            --query 'cluster.endpoint' \
-            --output text)"
-
-          host="${endpoint#https://}"
-
-          echo "EKS endpoint: $host"
-          echo "Endpoint DNS resolution:"
-          getent ahostsv4 "$host" || true
-
-          echo "Testing Kubernetes API:"
-          kubectl get --raw=/version \
-            --request-timeout=10s
-
+      # Install kubectl BEFORE any step tries to execute it.
       - name: Install kubectl
         shell: bash
         run: |
@@ -361,58 +351,56 @@ jobs:
 
           kubectl version --client
 
-      - name: Configure kubectl
+      - name: Configure kubectl and diagnose EKS connectivity
         shell: bash
         run: |
           set -euo pipefail
 
-          test -n "$EKS_CLUSTER_NAME" || {
-            echo "::error::Set EKS_CLUSTER_NAME in the production environment variables."
-            exit 1
-          }
+          echo "AWS identity:"
+          aws sts get-caller-identity
 
-          test -n "$AWS_REGION" || {
-            echo "::error::Set AWS_REGION in the production environment variables."
-            exit 1
-          }
-
-          echo "Checking EKS cluster status..."
+          echo "EKS cluster status:"
           aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION" \
             --query 'cluster.status' \
             --output text
 
-          echo "Generating kubeconfig..."
-          aws eks update-kubeconfig \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION"
-
-          echo "Verifying Kubernetes context..."
-          kubectl config current-context
-
-      - name: Diagnose EKS connectivity
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Runner public IP:"
-          curl -4 -fsS --max-time 10 https://checkip.amazonaws.com
+          echo "Runner public IP (for diagnostics only):"
+          curl -4 -fsS --max-time 10 https://checkip.amazonaws.com || true
           echo
 
-          echo "EKS endpoint configuration:"
+          echo "EKS endpoint access configuration:"
           aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION" \
             --query 'cluster.resourcesVpcConfig.{
               Public:endpointPublicAccess,
               Private:endpointPrivateAccess,
-              AllowedCIDRs:publicAccessCidrs
+              AllowedCIDRs:publicAccessCidrs,
+              ClusterSecurityGroup:clusterSecurityGroupId,
+              VPC:vpcId
             }' \
             --output json
 
-          echo "Kubernetes API connectivity:"
-          kubectl get --raw=/version --request-timeout=10s
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
+
+          endpoint="$(aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.endpoint' \
+            --output text)"
+
+          host="${endpoint#https://}"
+
+          echo "EKS endpoint: $host"
+          echo "Endpoint DNS resolution:"
+          getent ahostsv4 "$host" || true
+
+          echo "Testing Kubernetes API connectivity:"
+          kubectl get --raw=/version --request-timeout=15s
 
       - name: Bootstrap the least-privilege database role and create runtime Secrets
         env:
@@ -424,12 +412,12 @@ jobs:
           set -euo pipefail
 
           test -n "$DATABASE_ADMIN_SECRET_ARN" || {
-            echo "::error::Set DATABASE_ADMIN_SECRET_ARN from Terraform output."
+            echo "::error::DATABASE_ADMIN_SECRET_ARN is empty."
             exit 1
           }
 
           test -n "$DATABASE_APP_SECRET_ARN" || {
-            echo "::error::Set DATABASE_APP_SECRET_ARN from Terraform output."
+            echo "::error::DATABASE_APP_SECRET_ARN is empty."
             exit 1
           }
 
@@ -497,16 +485,6 @@ jobs:
           }
 
           trap cleanup EXIT
-
-          if [[ "$DATABASE_ADMIN_SECRET_ARN" != "journal-api-production/database/admin" ]]; then
-            echo "::error::DATABASE_ADMIN_SECRET_ARN does not match the expected secret name."
-            exit 1
-          fi
-
-          if [[ "$DATABASE_APP_SECRET_ARN" != "journal-api-production/database/app" ]]; then
-            echo "::error::DATABASE_APP_SECRET_ARN does not match the expected secret name."
-            exit 1
-          fi
 
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
@@ -638,30 +616,4 @@ jobs:
             exit 0
           fi
 
-          response="$(curl --fail --silent --show-error \
-            --retry 10 \
-            --retry-all-errors \
-            --retry-delay 6 \
-            --max-time 15 \
-            "${PRODUCTION_API_URL%/}/version")"
-
-          printf '%s' "$response" | DEPLOYED_SHA="$GITHUB_SHA" python3 -c '
-          import json
-          import os
-          import re
-          import sys
-
-          response = json.load(sys.stdin)
-          deployed = response.get("commit")
-          expected = os.environ["DEPLOYED_SHA"]
-
-          if not isinstance(deployed, str) or not re.fullmatch(r"[0-9a-f]{40}", deployed):
-              raise SystemExit("Production /version did not return a full commit SHA.")
-
-          if deployed != expected:
-              raise SystemExit(
-                  f"Production SHA {deployed} does not match deployed SHA {expected}."
-              )
-
-          print(f"PASS: production HTTPS /version reports deployed commit {expected}")
-          '
+          response="$(curl --fail --silent
