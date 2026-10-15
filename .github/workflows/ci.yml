@@ -1,3 +1,4 @@
+
 name: Journal API CI/CD
 
 on:
@@ -134,9 +135,6 @@ jobs:
 
           docker tag "journal-api:${GITHUB_SHA}" "$image"
 
-          # Each commit has its own immutable tag.
-          # Fail if the same tag already exists instead of silently
-          # assuming that its image was built from the current source.
           if aws ecr describe-images \
             --region "$AWS_REGION" \
             --repository-name "$ECR_REPOSITORY" \
@@ -180,28 +178,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-     
       - name: Validate production API URL
         env:
           PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
+        shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${PRODUCTION_API_URL:-}" ]]; then
-            echo "::error::Set PRODUCTION_API_URL to the public API URL."
-            exit 1
-          fi
-          if [[ "$PRODUCTION_API_URL" != http://* && "$PRODUCTION_API_URL" != https://* ]]; then
-            echo "::error::PRODUCTION_API_URL must start with http:// or https://."
-            exit 1
-          fi
-          echo "Production API URL configured."
 
           python3 - <<'PY'
           import os
           from urllib.parse import urlsplit
 
-         
           value = os.environ.get("PRODUCTION_API_URL", "").strip()
+
           try:
               parsed = urlsplit(value)
               valid = (
@@ -223,8 +212,7 @@ jobs:
               )
           PY
 
-          PY
-
+          echo "Production API URL configured."
 
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
@@ -425,14 +413,14 @@ jobs:
             -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
 
           echo "Ingress hostname: ${ingress_host}"
-          echo "Ingress hostname does not automatically replace the public HTTPS URL."
+          echo "Ingress hostname does not automatically replace the public API URL."
 
           echo "=== Deployment image and GIT_SHA ==="
           kubectl get deployment journal-api \
             --namespace journal-api \
             -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{" image="}{.image}{"\n"}{range .env[*]}{.name}{"="}{.value}{"\n"}{end}{end}'
 
-          echo "=== Public HTTPS version verification ==="
+          echo "=== Public API version verification ==="
           response="$(curl --fail --silent --show-error \
             --retry 10 --retry-all-errors --retry-delay 6 --max-time 15 \
             "${PRODUCTION_API_URL%/}/version")"
@@ -455,5 +443,5 @@ jobs:
                   f"Production SHA {deployed} does not match deployed SHA {expected}."
               )
 
-          print(f"PASS: production HTTPS /version reports deployed commit {expected}")
+          print(f"PASS: production /version reports deployed commit {expected}")
           '
