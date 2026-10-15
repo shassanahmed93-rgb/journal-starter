@@ -15,8 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Run tests on GitHub-hosted runners.
-  # Do not execute pull-request code on the self-hosted VPC runner.
   test:
     name: test
     runs-on: ubuntu-latest
@@ -81,7 +79,6 @@ jobs:
       - name: Pyright type check
         run: uv run pyright
 
-  # Build and publish the immutable image from a GitHub-hosted runner.
   build:
     name: build
     needs: test
@@ -108,41 +105,6 @@ jobs:
             --build-arg "GIT_SHA=${GITHUB_SHA}" \
             --tag "journal-api:${GITHUB_SHA}" \
             .
-
-      - name: Diagnose GitHub OIDC claims
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "::error::GitHub OIDC request variables are unavailable."
-            exit 1
-          fi
-
-          response="$(curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
-
-          token="$(jq -er '.value' <<< "$response")"
-          echo "::add-mask::${token}"
-
-          TOKEN="$token" python3 - <<'PY'
-          import base64
-          import json
-          import os
-
-          parts = os.environ["TOKEN"].split(".")
-          if len(parts) != 3:
-              raise SystemExit("Unexpected OIDC token format.")
-
-          payload = parts[1]
-          payload += "=" * (-len(payload) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-
-          print("OIDC subject:", claims.get("sub"))
-          print("OIDC audience:", claims.get("aud"))
-          PY
 
       - name: Configure AWS credentials with GitHub OIDC
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -181,6 +143,7 @@ jobs:
           describe_error="$(mktemp)"
 
           if aws ecr describe-images \
+            --region "$AWS_REGION" \
             --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=${GITHUB_SHA}" \
             >/dev/null 2>"$describe_error"; then
@@ -202,26 +165,26 @@ jobs:
           rm -f "$describe_error"
           echo "image=$image" >> "$GITHUB_OUTPUT"
 
-  # Only the deployment job uses the private-VPC self-hosted runner.
   deploy:
     name: deploy
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, journal-api-vpc]
+    runs-on: ubuntu-latest
 
-  environment:
-   name: production
-   url: http://k8s-journala-journala-d2ae1e615d-1251992254.us-east-1.elb.amazonaws.com
-   permissions:
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_API_URL }}
+
+    permissions:
       contents: read
       id-token: write
 
-  env:
+    env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-      DATABASE_ADMIN_SECRET_ARN: journal-api-production/database/admin
-      DATABASE_APP_SECRET_ARN: journal-api-production/database/app
+      DATABASE_ADMIN_SECRET_ARN: ${{ vars.DATABASE_ADMIN_SECRET_ARN }}
+      DATABASE_APP_SECRET_ARN: ${{ vars.DATABASE_APP_SECRET_ARN }}
       ALB_CLOUDFRONT_SECURITY_GROUP_ID: ${{ vars.ALB_CLOUDFRONT_SECURITY_GROUP_ID }}
       OTEL_COLLECTOR_ROLE_ARN: ${{ vars.OTEL_COLLECTOR_ROLE_ARN }}
       OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
@@ -232,29 +195,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate required deployment settings
+      - name: Validate production HTTPS URL when configured
+        if: ${{ vars.PRODUCTION_API_URL != '' }}
         shell: bash
+        env:
+          PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: |
           set -euo pipefail
-
-          for name in AWS_REGION AWS_DEPLOY_ROLE_ARN EKS_CLUSTER_NAME; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Required variable $name is empty."
-              exit 1
-            fi
-          done
-
-          if [[ -z "${IMAGE:-}" ]]; then
-            echo "::error::The build job did not provide an image."
-            exit 1
-          fi
-
-          if [[ -n "${PRODUCTION_API_URL:-}" ]]; then
-            PRODUCTION_API_URL="$PRODUCTION_API_URL" python3 - <<'PY'
+          python3 - <<'PYURL'
           import os
           from urllib.parse import urlsplit
 
-          value = os.environ["PRODUCTION_API_URL"].strip()
+          value = os.environ.get("PRODUCTION_API_URL", "").strip()
 
           try:
               parsed = urlsplit(value)
@@ -273,45 +225,9 @@ jobs:
 
           if not valid:
               raise SystemExit(
-                  "PRODUCTION_API_URL must be an HTTPS base URL without credentials, "
-                  "a path, query, or fragment."
+                  "Set PRODUCTION_API_URL to the CloudFront HTTPS URL."
               )
-          PY
-          fi
-
-      - name: Diagnose deploy OIDC claims
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "::error::GitHub OIDC request variables are unavailable."
-            exit 1
-          fi
-
-          response="$(curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
-
-          token="$(jq -er '.value' <<< "$response")"
-          echo "::add-mask::${token}"
-
-          TOKEN="$token" python3 - <<'PY'
-          import base64
-          import json
-          import os
-
-          parts = os.environ["TOKEN"].split(".")
-          if len(parts) != 3:
-              raise SystemExit("Unexpected OIDC token format.")
-
-          payload = parts[1]
-          payload += "=" * (-len(payload) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-
-          print("OIDC subject:", claims.get("sub"))
-          print("OIDC audience:", claims.get("aud"))
-          PY
+          PYURL
 
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.2.2
@@ -320,11 +236,19 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: journal-api-deploy-${{ github.run_id }}
 
-      # Install kubectl BEFORE any step tries to execute it.
-      - name: Install kubectl
+      - name: Configure kubectl
         shell: bash
         run: |
           set -euo pipefail
+
+          test -n "$EKS_CLUSTER_NAME" || {
+            echo "::error::Set EKS_CLUSTER_NAME from Terraform output."
+            exit 1
+          }
+
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
 
           minor="$(aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
@@ -350,57 +274,6 @@ jobs:
             /tmp/kubectl /usr/local/bin/kubectl
 
           kubectl version --client
-
-      - name: Configure kubectl and diagnose EKS connectivity
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "AWS identity:"
-          aws sts get-caller-identity
-
-          echo "EKS cluster status:"
-          aws eks describe-cluster \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION" \
-            --query 'cluster.status' \
-            --output text
-
-          echo "Runner public IP (for diagnostics only):"
-          curl -4 -fsS --max-time 10 https://checkip.amazonaws.com || true
-          echo
-
-          echo "EKS endpoint access configuration:"
-          aws eks describe-cluster \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION" \
-            --query 'cluster.resourcesVpcConfig.{
-              Public:endpointPublicAccess,
-              Private:endpointPrivateAccess,
-              AllowedCIDRs:publicAccessCidrs,
-              ClusterSecurityGroup:clusterSecurityGroupId,
-              VPC:vpcId
-            }' \
-            --output json
-
-          aws eks update-kubeconfig \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION"
-
-          endpoint="$(aws eks describe-cluster \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION" \
-            --query 'cluster.endpoint' \
-            --output text)"
-
-          host="${endpoint#https://}"
-
-          echo "EKS endpoint: $host"
-          echo "Endpoint DNS resolution:"
-          getent ahostsv4 "$host" || true
-
-          echo "Testing Kubernetes API connectivity:"
-          kubectl get --raw=/version --request-timeout=15s
 
       - name: Bootstrap the least-privilege database role and create runtime Secrets
         env:
@@ -616,4 +489,27 @@ jobs:
             exit 0
           fi
 
-          response="$(curl --fail --silent
+          response="$(curl --fail --silent --show-error \
+            --retry 10 --retry-all-errors --retry-delay 6 --max-time 15 \
+            "${PRODUCTION_API_URL%/}/version")"
+
+          printf '%s' "$response" | DEPLOYED_SHA="$GITHUB_SHA" python3 -c '
+          import json
+          import os
+          import re
+          import sys
+
+          response = json.load(sys.stdin)
+          deployed = response.get("commit")
+          expected = os.environ["DEPLOYED_SHA"]
+
+          if not isinstance(deployed, str) or not re.fullmatch(r"[0-9a-f]{40}", deployed):
+              raise SystemExit("Production /version did not return a full commit SHA.")
+
+          if deployed != expected:
+              raise SystemExit(
+                  f"Production SHA {deployed} does not match deployed SHA {expected}."
+              )
+
+          print(f"PASS: production HTTPS /version reports deployed commit {expected}")
+          '
