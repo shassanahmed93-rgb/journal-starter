@@ -16,7 +16,7 @@ concurrency:
 jobs:
   test:
     name: test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, journal-api-vpc]
 
     services:
       postgres:
