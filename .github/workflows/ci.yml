@@ -182,7 +182,7 @@ jobs:
     # FIX: name and url must be indented beneath environment.
     environment:
       name: production
-      url: https://github.com/shassanahmed93-rgb/journal-starter
+      url: ${{ vars.PRODUCTION_API_URL }}
 
     permissions:
       contents: read
