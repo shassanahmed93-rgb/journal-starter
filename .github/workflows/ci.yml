@@ -209,8 +209,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, journal-api-vpc]
 
     environment:
-      name: production
-      url: ${{: http://k8s-journala-journala-d2ae1e615d-1251992254.us-east-1.elb.amazonaws.com/version }}
+      name: production 
+      url: http://k8s-journala-journala-d2ae1e615d-1251992254.us-east-1.elb.amazonaws.com
 
     permissions:
       contents: read
