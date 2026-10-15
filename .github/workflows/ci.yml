@@ -1,4 +1,3 @@
-
 name: Journal API CI/CD
 
 on:
@@ -304,6 +303,33 @@ jobs:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: journal-api-deploy-${{ github.run_id }}
+
+      - name: Configure and diagnose EKS connectivity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Runner public IP: $(curl -s --max-time 5 https://checkip.amazonaws.com || echo unknown)"
+
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
+
+          endpoint="$(aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.endpoint' \
+            --output text)"
+
+          host="${endpoint#https://}"
+
+          echo "EKS endpoint: $host"
+          echo "Endpoint DNS resolution:"
+          getent ahostsv4 "$host" || true
+
+          echo "Testing Kubernetes API:"
+          kubectl get --raw=/version \
+            --request-timeout=10s
 
       - name: Install kubectl
         shell: bash
