@@ -94,7 +94,7 @@ jobs:
     env:
       AWS_REGION: us-east-1
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-      AWS_BUILD_ROLE_ARN: ${arn:aws:iam::714687692819:role/journal-api-production-github-build}
+      AWS_BUILD_ROLE_ARN: arn:aws:iam::714687692819:role/journal-api-production-github-build
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -230,6 +230,7 @@ jobs:
           PYURL
 
       - name: Configure AWS credentials with GitHub OIDC
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.2.2
         with:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
