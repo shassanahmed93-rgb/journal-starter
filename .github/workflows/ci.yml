@@ -130,23 +130,37 @@ jobs:
           registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           image="${registry}/${ECR_REPOSITORY}:${GITHUB_SHA}"
 
-          aws ecr get-login-password --region "$AWS_REGION" \
-            | docker login --username AWS --password-stdin "$registry"
-
-          docker tag "journal-api:${GITHUB_SHA}" "$image"
+          error_file="$(mktemp)"
+          trap 'rm -f "$error_file"' EXIT
 
           if aws ecr describe-images \
             --region "$AWS_REGION" \
             --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=${GITHUB_SHA}" \
-            >/dev/null 2>&1; then
-            echo "::error::An image with this commit SHA already exists in ECR."
-            echo "::error::Inspect the existing image before deciding whether to reuse it."
+            --query 'imageDetails[0].imageDigest' \
+            --output text \
+            >/dev/null 2>"$error_file"; then
+
+            echo "Reusing existing ECR image for commit ${GITHUB_SHA}."
+
+          elif grep -q "ImageNotFoundException" "$error_file"; then
+
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | docker login --username AWS --password-stdin "$registry"
+
+            docker tag "journal-api:${GITHUB_SHA}" "$image"
+            docker push "$image"
+
+            echo "Published image for commit ${GITHUB_SHA}."
+
+          else
+            cat "$error_file" >&2
+            echo "::error::Could not check whether the ECR image already exists."
             exit 1
           fi
 
-          docker push "$image"
           echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "ECR image output configured: $image"
 
   deploy:
     name: deploy
