@@ -385,7 +385,13 @@ jobs:
           }
 
           trap cleanup EXIT
-
+          
+      - name: Deploy application
+        env:
+          AWS_REGION: us-east-1
+          DATABASE_ADMIN_SECRET_ARN: arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/admin-cQiuwW
+          DATABASE_APP_SECRET_ARN: arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/app-ZdVop8
+        run: |
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
             --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
