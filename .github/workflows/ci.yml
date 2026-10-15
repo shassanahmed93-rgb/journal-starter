@@ -219,6 +219,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      
 
       - name: Validate production HTTPS URL when configured
         if: ${{ vars.PRODUCTION_API_URL != '' }}
@@ -305,6 +306,29 @@ jobs:
             echo "::error::Set EKS_CLUSTER_NAME from Terraform output."
             exit 1
           }
+
+      - name: Diagnose EKS connectivity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Runner public IP:"
+          curl -4 -fsS --max-time 10 https://checkip.amazonaws.com
+          echo
+
+          echo "EKS endpoint configuration:"
+          aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.resourcesVpcConfig.{
+              Public:endpointPublicAccess,
+              Private:endpointPrivateAccess,
+              AllowedCIDRs:publicAccessCidrs
+            }' \
+            --output json
+
+          echo "Kubernetes API connectivity:"
+          kubectl get --raw=/version --request-timeout=10s
 
           aws eks update-kubeconfig \
             --name "$EKS_CLUSTER_NAME" \
