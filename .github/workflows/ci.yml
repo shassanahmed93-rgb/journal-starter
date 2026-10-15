@@ -92,7 +92,7 @@ jobs:
       id-token: write
 
     env:
-      AWS_REGION: ${ us-east-1 }
+      AWS_REGION: us-east-1
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
       AWS_BUILD_ROLE_ARN: ${arn:aws:iam::714687692819:role/journal-api-production-github-build}
 
