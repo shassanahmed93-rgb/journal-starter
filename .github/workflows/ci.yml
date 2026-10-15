@@ -197,8 +197,8 @@ jobs:
       AWS_REGION: us-east-1
       AWS_DEPLOY_ROLE_ARN: arn:aws:iam::714687692819:role/journal-api-production-github-deploy
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-      DATABASE_ADMIN_SECRET_ARN: ${{ vars.DATABASE_ADMIN_SECRET_ARN }}
-      DATABASE_APP_SECRET_ARN: ${{ vars.DATABASE_APP_SECRET_ARN }}
+      DATABASE_ADMIN_SECRET_ID: journal-api-production/database/admin
+      DATABASE_APP_SECRET_ID: journal-api-production/database/app
       ALB_CLOUDFRONT_SECURITY_GROUP_ID: ${{ vars.ALB_CLOUDFRONT_SECURITY_GROUP_ID }}
       OTEL_COLLECTOR_ROLE_ARN: ${{ vars.OTEL_COLLECTOR_ROLE_ARN }}
       OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
@@ -321,13 +321,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -n "$DATABASE_ADMIN_SECRET_ARN" || {
-            echo "::error::DATABASE_ADMIN_SECRET_ARN is empty."
+          test -n "$DATABASE_ADMIN_SECRET_ID" || {
+            echo "::error::DATABASE_ADMIN_SECRET_ID is empty."
             exit 1
           }
 
-          test -n "$DATABASE_APP_SECRET_ARN" || {
-            echo "::error::DATABASE_APP_SECRET_ARN is empty."
+          test -n "$DATABASE_APP_SECRET_ID" || {
+            echo "::error::DATABASE_APP_SECRET_ID is empty."
             exit 1
           }
 
@@ -398,13 +398,13 @@ jobs:
           
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
-            --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
+            --secret-id "$DATABASE_ADMIN_SECRET_ID" \
             --query SecretString \
             --output text)"
 
           database_app_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
-            --secret-id "$DATABASE_APP_SECRET_ARN" \
+            --secret-id "$DATABASE_APP_SECRET_ID" \
             --query SecretString \
             --output text)"
 
