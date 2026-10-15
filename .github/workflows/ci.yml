@@ -208,15 +208,14 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, x64, journal-api-vpc]
 
-    environment:
-      name: production 
-      url: http://k8s-journala-journala-d2ae1e615d-1251992254.us-east-1.elb.amazonaws.com
-
-    permissions:
+  environment:
+   name: production
+   url: http://k8s-journala-journala-d2ae1e615d-1251992254.us-east-1.elb.amazonaws.com
+   permissions:
       contents: read
       id-token: write
 
-    env:
+  env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
