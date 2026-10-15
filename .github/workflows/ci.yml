@@ -161,19 +161,13 @@ jobs:
             --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=${GITHUB_SHA}" \
             >/dev/null 2>"$describe_error"; then
-
             echo "Reusing existing immutable image for ${GITHUB_SHA}."
-
           elif grep -q "ImageNotFoundException" "$describe_error"; then
-
             docker push "$image"
-
           else
-
             cat "$describe_error" >&2
             rm -f "$describe_error"
             exit 1
-
           fi
 
           rm -f "$describe_error"
@@ -185,9 +179,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
+    # FIX: name and url must be indented beneath environment.
     environment:
-    name: production
-    url: https://github.com/shassanahmed93-rgb/journal-starter
+      name: production
+      url: https://github.com/shassanahmed93-rgb/journal-starter
 
     permissions:
       contents: read
@@ -267,16 +262,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           test -n "$EKS_CLUSTER_NAME" || {
             echo "::error::Set EKS_CLUSTER_NAME from Terraform output."
             exit 1
           }
+
           echo "=== EKS endpoint settings ==="
           aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION" \
             --query 'cluster.{Endpoint:endpoint,Public:resourcesVpcConfig.endpointPublicAccess,Private:resourcesVpcConfig.endpointPrivateAccess,CIDRs:resourcesVpcConfig.publicAccessCidrs}' \
             --output json
+
           echo "=== EKS endpoint DNS ==="
           endpoint="$(aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
@@ -285,14 +283,17 @@ jobs:
             --output text)"
           hostname="${endpoint#https://}"
           getent ahostsv4 "$hostname" || true
+
           aws eks update-kubeconfig \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION"
+
           minor="$(aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION" \
             --query 'cluster.version' \
             --output text)"
+
           kubectl_version="$(curl --fail --silent --show-error \
             "https://dl.k8s.io/release/stable-${minor}.txt")"
 
@@ -395,7 +396,7 @@ jobs:
           }
 
           trap cleanup EXIT
-          
+
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
             --secret-id "$DATABASE_ADMIN_SECRET_ID" \
