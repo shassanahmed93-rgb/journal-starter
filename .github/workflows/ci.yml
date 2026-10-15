@@ -92,9 +92,9 @@ jobs:
       id-token: write
 
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_REGION: ${ us-east-1 }
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-      AWS_BUILD_ROLE_ARN: ${{ vars.AWS_BUILD_ROLE_ARN }}
+      AWS_BUILD_ROLE_ARN: ${arn:aws:iam::714687692819:role/journal-api-production-github-build}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -180,8 +180,8 @@ jobs:
       id-token: write
 
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: us-east-1
+      AWS_DEPLOY_ROLE_ARN: arn:aws:iam::714687692819:role/journal-api-production-github-deploy
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
       DATABASE_ADMIN_SECRET_ARN: ${{ vars.DATABASE_ADMIN_SECRET_ARN }}
       DATABASE_APP_SECRET_ARN: ${{ vars.DATABASE_APP_SECRET_ARN }}
