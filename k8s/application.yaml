@@ -39,6 +39,8 @@ spec:
               containerPort: 8000
               protocol: TCP
           env:
+            - name: GIT_SHA
+              value: GIT_SHA_PLACEHOLDER
             - name: OTEL_SERVICE_VERSION
               valueFrom:
                 fieldRef:
@@ -94,4 +96,3 @@ spec:
     - name: http
       port: 8000
       targetPort: http
-      protocol: TCP
