@@ -267,6 +267,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+<<<<<<< HEAD
 
           test -n "$EKS_CLUSTER_NAME" || {
             echo "::error::Set EKS_CLUSTER_NAME from Terraform output."
@@ -283,6 +284,28 @@ jobs:
             --query 'cluster.version' \
             --output text)"
 
+=======
+          test -n "$EKS_CLUSTER_NAME" || { echo "::error::Set EKS_CLUSTER_NAME from Terraform output."; exit 1; }
+
+          echo "=== EKS endpoint settings ==="
+          aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.{Endpoint:endpoint,Public:resourcesVpcConfig.endpointPublicAccess,Private:resourcesVpcConfig.endpointPrivateAccess,CIDRs:resourcesVpcConfig.publicAccessCidrs}' \
+            --output json
+
+          echo "=== EKS endpoint DNS ==="
+          endpoint="$(aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.endpoint' --output text)"
+          hostname="${endpoint#https://}"
+          getent ahostsv4 "$hostname" || true
+
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          minor="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" \
+            --query 'cluster.version' --output text)"
+>>>>>>> 7c257ca (Add EKS endpoint connectivity diagnostics)
           kubectl_version="$(curl --fail --silent --show-error \
             "https://dl.k8s.io/release/stable-${minor}.txt")"
 
