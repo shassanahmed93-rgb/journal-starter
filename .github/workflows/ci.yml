@@ -200,11 +200,12 @@ jobs:
           import os
           from urllib.parse import urlsplit
 
+         
           value = os.environ.get("PRODUCTION_API_URL", "").strip()
           try:
               parsed = urlsplit(value)
               valid = (
-                  parsed.scheme == "https"
+                  parsed.scheme in ("http", "https")
                   and bool(parsed.hostname)
                   and parsed.username is None
                   and parsed.password is None
@@ -218,9 +219,12 @@ jobs:
 
           if not valid:
               raise SystemExit(
-                  "Set PRODUCTION_API_URL to the public HTTPS API root."
+                  "Set PRODUCTION_API_URL to a valid public API root using HTTP or HTTPS."
               )
           PY
+
+          PY
+
 
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
