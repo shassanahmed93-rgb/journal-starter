@@ -267,45 +267,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-<<<<<<< HEAD
-
           test -n "$EKS_CLUSTER_NAME" || {
             echo "::error::Set EKS_CLUSTER_NAME from Terraform output."
             exit 1
           }
-
-          aws eks update-kubeconfig \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION"
-
-          minor="$(aws eks describe-cluster \
-            --name "$EKS_CLUSTER_NAME" \
-            --region "$AWS_REGION" \
-            --query 'cluster.version' \
-            --output text)"
-
-=======
-          test -n "$EKS_CLUSTER_NAME" || { echo "::error::Set EKS_CLUSTER_NAME from Terraform output."; exit 1; }
-
           echo "=== EKS endpoint settings ==="
           aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION" \
             --query 'cluster.{Endpoint:endpoint,Public:resourcesVpcConfig.endpointPublicAccess,Private:resourcesVpcConfig.endpointPrivateAccess,CIDRs:resourcesVpcConfig.publicAccessCidrs}' \
             --output json
-
           echo "=== EKS endpoint DNS ==="
           endpoint="$(aws eks describe-cluster \
             --name "$EKS_CLUSTER_NAME" \
             --region "$AWS_REGION" \
-            --query 'cluster.endpoint' --output text)"
+            --query 'cluster.endpoint' \
+            --output text)"
           hostname="${endpoint#https://}"
           getent ahostsv4 "$hostname" || true
-
-          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
-          minor="$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" \
-            --query 'cluster.version' --output text)"
->>>>>>> 7c257ca (Add EKS endpoint connectivity diagnostics)
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
+          minor="$(aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.version' \
+            --output text)"
           kubectl_version="$(curl --fail --silent --show-error \
             "https://dl.k8s.io/release/stable-${minor}.txt")"
 
@@ -409,12 +396,6 @@ jobs:
 
           trap cleanup EXIT
           
-      - name: Deploy application
-        env:
-          AWS_REGION: us-east-1
-          DATABASE_ADMIN_SECRET_ARN: arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/admin-cQiuwW
-          DATABASE_APP_SECRET_ARN: arn:aws:secretsmanager:us-east-1:714687692819:secret:journal-api-production/database/app-ZdVop8
-        run: |
           database_admin_secret="$(aws secretsmanager get-secret-value \
             --region "$AWS_REGION" \
             --secret-id "$DATABASE_ADMIN_SECRET_ARN" \
