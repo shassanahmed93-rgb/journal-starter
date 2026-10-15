@@ -210,7 +210,7 @@ jobs:
 
     environment:
       name: production
-      url: ${{ vars.PRODUCTION_API_URL }}
+      url: ${{: http://k8s-journala-journala-d2ae1e615d-1251992254.us-east-1.elb.amazonaws.com/version }}
 
     permissions:
       contents: read
