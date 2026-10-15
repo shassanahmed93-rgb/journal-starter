@@ -180,12 +180,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate production HTTPS URL
-        shell: bash
+     
+      - name: Validate production API URL
         env:
           PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: |
           set -euo pipefail
+          if [[ -z "${PRODUCTION_API_URL:-}" ]]; then
+            echo "::error::Set PRODUCTION_API_URL to the public API URL."
+            exit 1
+          fi
+          if [[ "$PRODUCTION_API_URL" != http://* && "$PRODUCTION_API_URL" != https://* ]]; then
+            echo "::error::PRODUCTION_API_URL must start with http:// or https://."
+            exit 1
+          fi
+          echo "Production API URL configured."
 
           python3 - <<'PY'
           import os
