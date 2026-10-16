@@ -1,4 +1,44 @@
-# Learn to Cloud Phase 3 Capstone: Journal API
+Verified live: the CI/CD pipeline (test → build → deploy) passed on main with a recorded production deployment, and Learn to Cloud’s independent verifier confirmed the public HTTPS API (create entry, AI analysis, and /version matching the deployed commit). Resources were deleted afterwards to avoid ongoing cost.
+
+# Journal API on AWS: Terraform + EKS + CI/CD + OpenTelemetry
+
+[CI badge]
+
+A FastAPI + PostgreSQL journaling API with AI-powered entry analysis, deployed
+to AWS with infrastructure as code and a fully automated pipeline.
+
+**Live:** https://<your-domain>/docs   |   **Demo:** <link to recording>
+
+## Architecture
+[diagram: Internet -> ALB (ACM TLS) -> EKS pods -> private RDS;
+ GitHub Actions -> OIDC -> ECR/EKS; admin -> SSO + restricted EKS API]
+
+## Stack and why
+| Need | Choice | Why |
+...
+
+## Security
+- RDS in private subnets, reachable only from the app tier
+- OIDC federation, no long-lived keys; secrets in Secrets Manager
+- Admin token required for destructive endpoints
+...
+
+## Observability
+Dashboard, X-Ray trace, and alarm screenshots
+
+## Cost
+~$X/month while running; budget alert at $Y
+
+## Evidence
+| Constraint | How verified |
+
+## Known limitation
+Shared bearer tokens instead of per-user auth; I'd add Cognito/OIDC
+and per-user data isolation before production.
+
+## Deploy / operate
+See docs/deploy.md
+
 
 [![CI](https://github.com/shassanahmed93-rgb/journal-starter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shassanahmed93-rgb/journal-starter/actions/workflows/ci.yml)
 
